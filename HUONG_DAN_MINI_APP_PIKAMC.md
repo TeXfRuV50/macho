@@ -1,4 +1,4 @@
-# 🎮 HƯỚNG DẪN CÀI ĐẶT BOT MA SÓI TRÊN PIKAMC (GÓI 25K / THÁNG)
+# 🎮 HƯỚNG DẪN CÀI ĐẶT & CHẠY BOT MA SÓI TRÊN PIKAMC (GÓI 25K / THÁNG)
 
 > Hướng dẫn chi tiết từng bước cách đưa Bot Ma Sói lên dịch vụ **Mini-App / App Hosting** của **PikaMC (`pikamc.vn`)** với chi phí chỉ **25.000đ / tháng**, quản lý 100% qua giao diện Web Panel trực quan (có sẵn nút Bật/Tắt/Khởi động lại).
 
@@ -19,25 +19,30 @@
 
 ## ⚡ TỔNG QUAN CÁC BƯỚC THỰC HIỆN
 
-1. Đăng ký gói tại `pikamc.vn` và đăng nhập vào trang **Web Panel quản lý**.
-2. Thiết lập mục **Startup** (chọn NodeJS 20/22 và chỉ định file `dist/index.js`).
-3. Đưa mã nguồn Bot lên (Upload file zip hoặc Git Clone).
-4. Tạo file cấu hình `.env` (điền Token Bot & Client ID).
-5. Chạy `npm install` và `npm run register` rồi bấm **START**!
+```mermaid
+flowchart LR
+    A["1. Đăng ký gói 25k"] --> B["2. Cấu hình Startup Node 20/22"]
+    B --> C["3. Upload code (Zip / Git)"]
+    C --> D["4. Tạo file .env"]
+    D --> E["5. npm install & register"]
+    E --> F["6. Bấm START chạy 24/7"]
+```
 
 ---
 
 ## 📖 HƯỚNG DẪN CHI TIẾT TỪNG BƯỚC
 
 ### BƯỚC 1: Đăng nhập vào Web Panel của PikaMC
-Sau khi mua gói 25k, bạn sẽ nhận được đường dẫn trang quản lý Panel cùng tài khoản đăng nhập (qua email hoặc trang khách hàng). Bấm vào link và đăng nhập vào giao diện máy chủ của bạn.
+1. Truy cập [pikamc.vn](https://pikamc.vn) và đặt mua gói **Mini-App Hosting** (hoặc gói 25k).
+2. Sau khi thanh toán quét mã QR thành công, hệ thống gửi cho bạn đường dẫn truy cập **Web Panel** (Pterodactyl) cùng tài khoản đăng nhập qua email / trang khách hàng.
+3. Bấm vào link và đăng nhập vào giao diện máy chủ của bạn trên trình duyệt.
 
 ---
 
 ### BƯỚC 2: Cấu hình Khởi động (Startup Settings)
 1. Ở thanh menu bên trái, tìm và bấm vào mục **Startup** (hoặc *Cài đặt khởi động*).
 2. Kiểm tra các mục sau:
-   - **NodeJS Version:** Chọn **Node 20** hoặc **Node 22** (LTS).
+   - **NodeJS Version:** Chọn **Node 20** hoặc **Node 22** (bản LTS ổn định nhất).
    - **Main File / Entrypoint:** Điền `dist/index.js` (hoặc nếu là ô **Startup Command** thì điền `node dist/index.js`).
 
 ---
@@ -48,7 +53,7 @@ Bạn có thể chọn 1 trong 2 cách sau:
 
 #### 👉 Cách 1: Tải qua File Zip từ máy tính (Dễ nhất & Khuyên dùng)
 1. Trên máy tính của bạn, mở thư mục dự án bot (`d:\ma chó`).
-2. Chọn tất cả các file và thư mục (nhớ có thư mục `dist/`), **trừ** thư mục `node_modules` và thư mục `.git` (cho nhẹ).
+2. Chọn tất cả các file và thư mục (nhớ có thư mục `dist/`), **trừ** thư mục `node_modules` và thư mục `.git` (để file nhẹ tải lên nhanh).
 3. Bấm chuột phải ➔ Chọn **Compress to ZIP file** (đặt tên là `bot.zip`).
 4. Trên Web Panel PikaMC, bấm vào mục **Files** (Quản lý tệp) ➔ Bấm nút **Upload** (Tải lên) ➔ Chọn file `bot.zip`.
 5. Khi tải lên 100%, bấm chuột phải (hoặc dấu 3 chấm) vào file `bot.zip` ➔ Chọn **Unarchive** (Giải nén).
