@@ -24,8 +24,13 @@ echo "✅ Node.js phiên bản: $NODE_VERSION"
 echo "📦 [2/5] Đang cài đặt thư viện dependencies..."
 npm install
 
-echo "🔨 [3/5] Đang biên dịch TypeScript sang JavaScript..."
-npm run build
+echo "🔨 [3/5] Kiểm tra thư mục biên dịch JavaScript..."
+if [ ! -f "dist/index.js" ]; then
+    echo "⚡ Đang biên dịch TypeScript sang JavaScript..."
+    npm run build
+else
+    echo "✅ Đã có sẵn mã nguồn biên dịch (dist/index.js), bỏ qua build để tiết kiệm RAM!"
+fi
 
 echo "⚙️ [4/5] Kiểm tra file cấu hình .env..."
 if [ ! -f .env ]; then
