@@ -11,6 +11,24 @@
 
 ---
 
+## 🔑 BƯỚC QUAN TRỌNG: CÁCH LẤY GITHUB TOKEN (CHO REPO PRIVATE)
+Vì kho mã nguồn của bạn đang để chế độ **Private (Riêng tư)**, GitHub không cho phép dùng mật khẩu tài khoản để tải code mà bắt buộc dùng **Personal Access Token (Token cá nhân)**. Bạn chỉ cần tạo **1 lần duy nhất**:
+
+1. Mở trình duyệt trên máy tính/điện thoại, đăng nhập vào [GitHub](https://github.com).
+2. Bấm vào **Ảnh đại diện** (Avatar góc trên bên phải) ➔ Chọn **Settings** (Cài đặt).
+3. Kéo thanh cuộn bên trái xuống dưới cùng ➔ Bấm vào **Developer settings**.
+4. Chọn **Personal access tokens** ➔ Chọn **Tokens (classic)**.
+5. Bấm vào nút **Generate new token** ➔ Chọn **Generate new token (classic)**.
+6. Điền thông tin:
+   - **Note:** Đặt tên gợi nhớ (ví dụ: `vps-werewolf`).
+   - **Expiration:** Chọn `No expiration` (không bao giờ hết hạn) hoặc `90 days`.
+   - **Select scopes:** Tích chọn vào ô vuông **`repo`** *(Full control of private repositories)*.
+7. Kéo xuống cuối trang, bấm nút màu xanh lá **Generate token**.
+8. **Copy mã token** vừa hiện ra (có dạng: `ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`).
+   *(⚠️ Lưu ý: Token chỉ hiển thị 1 lần duy nhất, hãy lưu lại vào ghi chú để dùng bất cứ lúc nào).*
+
+---
+
 # 🐧 PHẦN 1: CÀI ĐẶT TRÊN VPS UBUNTU / DEBIAN LINUX
 
 ### Bước 1: Đăng nhập vào VPS qua SSH
@@ -40,9 +58,24 @@ git --version
 
 ---
 
-### Bước 3: Tải mã nguồn Bot từ GitHub
+### Bước 3: Tải mã nguồn Bot từ GitHub (Repo Private)
+
+#### 👉 Cách 1: Kẹp Token vào lệnh (Khuyên dùng - Nhanh nhất)
+Thay `ghp_mã_token_ở_đây` bằng token GitHub của bạn và chạy:
 ```bash
-git clone https://github.com/TeXfRuV50/macho.git
+git clone https://TeXfRuV50:ghp_mã_token_ở_đây@github.com/TeXfRuV50/macho.git
+cd macho
+npm install
+```
+*(Với cách này VPS sẽ tự xác thực và tải về ngay lập tức, không bị hỏi tài khoản mật khẩu).*
+
+#### 👉 Cách 2: Nhập Token khi được hỏi
+Nếu bạn gõ lệnh `git clone https://github.com/TeXfRuV50/macho.git`:
+- `Username for 'https://github.com':` ➔ Gõ `TeXfRuV50` rồi Enter.
+- `Password for 'https://...':` ➔ **Dán mã token `ghp_...`** vào rồi Enter. *(Màn hình Linux ẩn ký tự mật khẩu, cứ dán rồi Enter).*
+
+Sau đó cài đặt thư viện:
+```bash
 cd macho
 npm install
 ```
@@ -110,13 +143,21 @@ winget install OpenJS.NodeJS.LTS Git.Git -e --accept-source-agreements --accept-
 
 ---
 
-### Bước 3: Tải mã nguồn Bot về VPS Windows
+### Bước 3: Tải mã nguồn Bot về VPS Windows (Repo Private)
 Mở **PowerShell** hoặc **Command Prompt (cmd)** và chạy:
+
+#### 👉 Cách 1: Kẹp Token vào lệnh (Khuyên dùng - 1 click ăn ngay):
+Thay `ghp_mã_token_ở_đây` bằng token GitHub của bạn:
 ```powershell
-git clone https://github.com/TeXfRuV50/macho.git
+git clone https://TeXfRuV50:ghp_mã_token_ở_đây@github.com/TeXfRuV50/macho.git
 cd macho
 npm install
 ```
+
+#### 👉 Cách 2: Nếu gõ lệnh `git clone https://github.com/TeXfRuV50/macho.git`:
+Git trên Windows có thể bật cửa sổ pop-up yêu cầu đăng nhập:
+- Chọn **Token** (hoặc Personal Access Token) và dán mã token `ghp_...` vào.
+- Hoặc nếu hỏi trong PowerShell: Username điền `TeXfRuV50`, Password dán mã token `ghp_...` vào.
 
 ---
 

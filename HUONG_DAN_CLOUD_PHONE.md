@@ -4,15 +4,33 @@
 
 ---
 
+## 🔑 BƯỚC QUAN TRỌNG: CÁCH LẤY GITHUB TOKEN (CHO REPO PRIVATE)
+Vì kho mã nguồn của bạn đang để chế độ **Private (Riêng tư)**, GitHub không cho phép dùng mật khẩu thông thường để tải về mà bắt buộc dùng **Personal Access Token (Token cá nhân)**. Bạn chỉ cần tạo **1 lần duy nhất** để dùng cho mọi Cloud Phone / VPS:
+
+1. Mở trình duyệt, đăng nhập vào GitHub.
+2. Bấm vào **Ảnh đại diện** (Avatar góc trên bên phải) ➔ Chọn **Settings** (Cài đặt).
+3. Kéo thanh cuộn bên trái xuống dưới cùng ➔ Bấm vào **Developer settings**.
+4. Chọn **Personal access tokens** ➔ Chọn **Tokens (classic)**.
+5. Bấm vào nút **Generate new token** ➔ Chọn **Generate new token (classic)**.
+6. Điền thông tin:
+   - **Note:** Đặt tên gợi nhớ (ví dụ: `cloud-phone` hoặc `bot-werewolf`).
+   - **Expiration:** Chọn `No expiration` (không bao giờ hết hạn) hoặc `90 days`.
+   - **Select scopes:** Tích chọn vào ô vuông **`repo`** *(Full control of private repositories)*.
+7. Kéo xuống cuối trang, bấm nút màu xanh lá **Generate token**.
+8. **Copy mã token** vừa hiện ra (có dạng: `ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`).
+   *(⚠️ Lưu ý: Token chỉ hiển thị 1 lần duy nhất, hãy lưu lại vào ghi chú để dùng bất cứ lúc nào).*
+
+---
+
 ## ⚡ BẢN TÓM TẮT NHANH (CHO NGƯỜI ĐÃ QUEN)
 
 Trên chiếc Cloud Phone mới, mở **Termux** và chạy lần lượt 3 khối lệnh:
 
-### 1️⃣ Khối lệnh 1: Cài môi trường & Tải Bot về máy
+### 1️⃣ Khối lệnh 1: Cài môi trường & Tải Bot về máy (Thay mã token của bạn vào)
 ```bash
 termux-wake-lock
 pkg update -y && pkg install nodejs-lts git -y
-git clone https://github.com/TeXfRuV50/macho.git
+git clone https://TeXfRuV50:ghp_mã_token_ở_đây@github.com/TeXfRuV50/macho.git
 cd macho
 npm install
 ```
@@ -53,12 +71,31 @@ pkg update -y && pkg install nodejs-lts git -y
 ```
 *(Nếu Termux hiện câu hỏi `[Y/n]` thì gõ `y` rồi nhấn Enter).*
 
-### BƯỚC 3: Tải mã nguồn Bot từ GitHub
+### BƯỚC 3: Tải mã nguồn Bot từ GitHub (Repo Private)
+
+#### 👉 Cách 1: Kẹp Token trực tiếp vào lệnh (Khuyên dùng - 1 phát ăn ngay)
+Thay `ghp_mã_token_ở_đây` bằng token GitHub của bạn và dán vào Termux:
 ```bash
-git clone https://github.com/TeXfRuV50/macho.git
+git clone https://TeXfRuV50:ghp_mã_token_ở_đây@github.com/TeXfRuV50/macho.git
 cd macho
 npm install
 ```
+*(Với cách này, Termux sẽ tự đăng nhập và tải về ngay lập tức, không bao giờ bị hỏi Username hay Password!)*
+
+#### 👉 Cách 2: Nhập Token thủ công khi được hỏi
+Nếu bạn gõ lệnh clone bình thường:
+```bash
+git clone https://github.com/TeXfRuV50/macho.git
+```
+- Khi máy hỏi `Username for 'https://github.com':` ➔ Gõ `TeXfRuV50` rồi nhấn **Enter**.
+- Khi máy hỏi `Password for 'https://...':` ➔ **Dán mã token `ghp_...`** vào rồi nhấn **Enter**. *(Lưu ý: Trên Linux/Termux, khi dán mật khẩu màn hình sẽ không hiển thị ký tự nào để bảo mật, bạn cứ dán rồi nhấn Enter là xong).*
+
+Sau đó vào thư mục và cài thư viện:
+```bash
+cd macho
+npm install
+```
+
 > 💡 **Lưu ý quan trọng:** Bạn **KHÔNG CẦN CHẠY `npm run build`**! Mã nguồn đã được biên dịch sẵn JavaScript trong thư mục `dist/` để tránh lỗi tràn RAM (`Out of memory`) trên Cloud Phone.
 
 ### BƯỚC 4: Tạo cấu hình `.env` (Không cần bấm phím Ctrl)
