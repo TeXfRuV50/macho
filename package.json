@@ -1,0 +1,29 @@
+{
+  "name": "discord-werewolf-vn",
+  "version": "1.0.0",
+  "description": "Discord Werewolf (Ma Sói) Bot with Automated Game Master in Vietnamese",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "register": "node dist/deploy-commands.js",
+    "register:ts": "tsx src/deploy-commands.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": ["discord", "werewolf", "ma-soi", "bot", "game"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.17.3",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.3",
+    "vitest": "^3.0.5"
+  }
+}
