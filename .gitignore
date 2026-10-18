@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Production build
-dist/
+# Production build (bỏ comment nếu không muốn push dist)
+# dist/
 
 # Environment variables
 .env
