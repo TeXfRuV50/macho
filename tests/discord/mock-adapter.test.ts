@@ -1089,6 +1089,123 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
       expect(game.config.roles['DOCTOR']).toBe(1);
       expect(game.config.roles['WHITE_WOLF']).toBe(1);
     });
+
+    it('Sói Quỷ tương tác chuyển đổi chế độ Lây lan vs Cắn chết qua button interaction', async () => {
+      const game = new WerewolfGame('game-demon-ui', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('demon-1', 'Sói Quỷ');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+      game.addPlayer('v3', 'Dân 3');
+
+      const demon = game.players.get('demon-1')!;
+      demon.roleId = 'DEMON_WOLF';
+      demon.faction = 'WEREWOLF';
+      demon.skills.demonWolfInfectRemaining = 1;
+      demon.skills.demonWolfMode = 'KILL';
+      game.phase = 'NIGHT';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      // Bấm nút chuyển sang Lây lan
+      const infectBtnId = buildCustomId(game.id, 'NIGHT', 'demon_mode_infect', 'demon-1');
+      const mockInfectBtn = createMockButtonInteraction(infectBtnId, 'demon-1');
+      await handler.handleInteraction(mockInfectBtn);
+
+      expect(demon.skills.demonWolfMode).toBe('INFECT');
+      expect(mockInfectBtn.getReply().content).toContain('Lây lan thành Sói');
+
+      // Bấm nút chuyển sang Cắn chết
+      const killBtnId = buildCustomId(game.id, 'NIGHT', 'demon_mode_kill', 'demon-1');
+      const mockKillBtn = createMockButtonInteraction(killBtnId, 'demon-1');
+      await handler.handleInteraction(mockKillBtn);
+
+      expect(demon.skills.demonWolfMode).toBe('KILL');
+      expect(mockKillBtn.getReply().content).toContain('Cắn chết');
+    });
+
+    it('Sói Cuồng Nộ chọn phế kỹ năng qua select menu interaction', async () => {
+      const game = new WerewolfGame('game-berserk-ui', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('berserk-1', 'Sói Cuồng Nộ');
+      game.addPlayer('deadWolf', 'Sói Chết');
+      game.addPlayer('seer-1', 'Tiên Tri');
+      game.addPlayer('v1', 'Dân 1');
+
+      game.players.get('berserk-1')!.roleId = 'BERSERK_WOLF';
+      game.players.get('berserk-1')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.roleId = 'WEREWOLF';
+      game.players.get('deadWolf')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.isAlive = false;
+      game.players.get('seer-1')!.roleId = 'SEER';
+      game.phase = 'NIGHT';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      const disableMenuId = buildCustomId(game.id, 'NIGHT', 'berserk_disable_target', 'berserk-1');
+      const mockSelect = createMockSelectInteraction(disableMenuId, 'berserk-1', ['seer-1']);
+      await handler.handleInteraction(mockSelect);
+
+      const disableAction = game.currentPhaseActions.find((a) => a.type === 'BERSERK_DISABLE');
+      expect(disableAction).toBeDefined();
+      expect(disableAction?.targetId).toBe('seer-1');
+      expect(mockSelect.getReply().content).toContain('phế kỹ năng');
+    });
+
+    it('Sói Trắng chọn cắn Dân làng qua select menu interaction', async () => {
+      const game = new WerewolfGame('game-ww-ui', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('ww-1', 'Sói Trắng');
+      game.addPlayer('wolf-2', 'Sói 2');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+
+      game.players.get('ww-1')!.roleId = 'WHITE_WOLF';
+      game.players.get('ww-1')!.faction = 'WEREWOLF';
+      game.players.get('wolf-2')!.roleId = 'WEREWOLF';
+      game.players.get('wolf-2')!.faction = 'WEREWOLF';
+      game.nightNumber = 2;
+      game.phase = 'NIGHT';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      const wwMenuId = buildCustomId(game.id, 'NIGHT', 'white_wolf_target', 'ww-1');
+      const mockSelect = createMockSelectInteraction(wwMenuId, 'ww-1', ['v1']);
+      await handler.handleInteraction(mockSelect);
+
+      const wwAction = game.currentPhaseActions.find((a) => a.type === 'WHITE_WOLF_KILL');
+      expect(wwAction).toBeDefined();
+      expect(wwAction?.targetId).toBe('v1');
+    });
+
+    it('Menu cắn bầy Sói loại trừ hoàn toàn các đồng đội Sói', () => {
+      const game = new WerewolfGame('game-wolf-menu', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('w1', 'Sói 1');
+      game.addPlayer('w2', 'Sói 2');
+      game.addPlayer('ww', 'Sói Trắng');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+
+      game.players.get('w1')!.roleId = 'WEREWOLF';
+      game.players.get('w1')!.faction = 'WEREWOLF';
+      game.players.get('w2')!.roleId = 'DEMON_WOLF';
+      game.players.get('w2')!.faction = 'WEREWOLF';
+      game.players.get('ww')!.roleId = 'WHITE_WOLF';
+      game.players.get('ww')!.faction = 'WEREWOLF';
+
+      const biteMenuRows = WerewolfComponents.buildWolfBiteMenu(game, 'w1');
+      expect(biteMenuRows.length).toBeGreaterThan(0);
+
+      const selectMenu = biteMenuRows[0].components[0] as any;
+      const optionValues = selectMenu.options.map((opt: any) => opt.data.value);
+
+      // Chỉ có Dân làng v1 và v2, không có w1, w2, ww
+      expect(optionValues).toContain('v1');
+      expect(optionValues).toContain('v2');
+      expect(optionValues).not.toContain('w1');
+      expect(optionValues).not.toContain('w2');
+      expect(optionValues).not.toContain('ww');
+    });
   });
 });
 

@@ -497,4 +497,428 @@ describe('Werewolf Online (Wolvesville) Roles & Mechanics', () => {
       expect(res.deaths[0].player.id).toBe('v1');
     });
   });
+
+  describe('Chống cắn đồng đội Sói (No Wolf Friendly Fire)', () => {
+    it('Sói không thể submit phiếu cắn đồng đội phe Sói', () => {
+      const game = new WerewolfGame('game-wolf-ff', 'g1', 'c1', 'h1');
+      game.addPlayer('w1', 'Sói 1');
+      game.addPlayer('w2', 'Sói 2');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+
+      game.players.get('w1')!.roleId = 'WEREWOLF';
+      game.players.get('w1')!.faction = 'WEREWOLF';
+      game.players.get('w2')!.roleId = 'DEMON_WOLF';
+      game.players.get('w2')!.faction = 'WEREWOLF';
+
+      game.startNight();
+
+      const voteTeammate = game.submitAction({
+        userId: 'w1',
+        roleId: 'WEREWOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'w2',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+
+      expect(voteTeammate.success).toBe(false);
+      expect(voteTeammate.message).toContain('không thể bỏ phiếu cắn đồng đội');
+
+      const voteVillager = game.submitAction({
+        userId: 'w1',
+        roleId: 'WEREWOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'v1',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+      expect(voteVillager.success).toBe(true);
+    });
+  });
+
+  describe('Sói Trắng (White Wolf) - Cắn dân làng & đồng loại', () => {
+    it('Sói Trắng có thể cắn Dân làng vào đêm chẵn (Đêm 2)', () => {
+      const game = new WerewolfGame('game-ww-villager', 'g1', 'c1', 'h1');
+      game.addPlayer('ww', 'Sói Trắng');
+      game.addPlayer('wolf', 'Sói Thường');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+
+      game.players.get('ww')!.roleId = 'WHITE_WOLF';
+      game.players.get('ww')!.faction = 'WEREWOLF';
+      game.players.get('wolf')!.roleId = 'WEREWOLF';
+      game.players.get('wolf')!.faction = 'WEREWOLF';
+
+      // Chuyển sang Đêm 2
+      game.nightNumber = 1;
+      game.startNight();
+      expect(game.nightNumber).toBe(2);
+
+      // Sói thường và Sói trắng cùng cắn v1
+      game.submitAction({
+        userId: 'wolf',
+        roleId: 'WEREWOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'v1',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+
+      // Sói Trắng bí mật cắn Dân làng v2
+      const wwAction = game.submitAction({
+        userId: 'ww',
+        roleId: 'WHITE_WOLF',
+        type: 'WHITE_WOLF_KILL',
+        targetId: 'v2',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+      expect(wwAction.success).toBe(true);
+
+      const res = game.resolveNightPhase();
+      expect(res.deaths).toHaveLength(2);
+      const deadIds = res.deaths.map((d) => d.player.id);
+      expect(deadIds).toContain('v1'); // Bị bầy sói cắn
+      expect(deadIds).toContain('v2'); // Bị Sói trắng cắn
+      expect(res.deaths.find((d) => d.player.id === 'v2')?.reason).toBe('WHITE_WOLF');
+    });
+
+    it('Sói Trắng cũng có thể cắn Sói đồng loại vào đêm chẵn (Đêm 2)', () => {
+      const game = new WerewolfGame('game-ww-wolf', 'g1', 'c1', 'h1');
+      game.addPlayer('ww', 'Sói Trắng');
+      game.addPlayer('wolf', 'Sói Thường');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+
+      game.players.get('ww')!.roleId = 'WHITE_WOLF';
+      game.players.get('ww')!.faction = 'WEREWOLF';
+      game.players.get('wolf')!.roleId = 'WEREWOLF';
+      game.players.get('wolf')!.faction = 'WEREWOLF';
+
+      game.nightNumber = 1;
+      game.startNight();
+      expect(game.nightNumber).toBe(2);
+
+      // Sói Trắng cắn Sói thường
+      const wwAction = game.submitAction({
+        userId: 'ww',
+        roleId: 'WHITE_WOLF',
+        type: 'WHITE_WOLF_KILL',
+        targetId: 'wolf',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+      expect(wwAction.success).toBe(true);
+
+      const res = game.resolveNightPhase();
+      const wolfDeath = res.deaths.find((d) => d.player.id === 'wolf');
+      expect(wolfDeath).toBeDefined();
+      expect(wolfDeath?.reason).toBe('WHITE_WOLF');
+    });
+
+    it('Sói Trắng không thể tự cắn chính mình và không thể cắn vào Đêm 1', () => {
+      const game = new WerewolfGame('game-ww-invalid', 'g1', 'c1', 'h1');
+      game.addPlayer('ww', 'Sói Trắng');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+      game.addPlayer('v3', 'Dân 3');
+
+      game.players.get('ww')!.roleId = 'WHITE_WOLF';
+      game.players.get('ww')!.faction = 'WEREWOLF';
+
+      game.nightNumber = 0;
+      game.startNight();
+      expect(game.nightNumber).toBe(1);
+
+      // Đêm 1 không thể cắn
+      const night1Fail = game.submitAction({
+        userId: 'ww',
+        roleId: 'WHITE_WOLF',
+        type: 'WHITE_WOLF_KILL',
+        targetId: 'v1',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+      expect(night1Fail.success).toBe(false);
+
+      // Đêm 2 không thể tự cắn
+      game.startNight();
+      expect(game.nightNumber).toBe(2);
+      const selfFail = game.submitAction({
+        userId: 'ww',
+        roleId: 'WHITE_WOLF',
+        type: 'WHITE_WOLF_KILL',
+        targetId: 'ww',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+      expect(selfFail.success).toBe(false);
+    });
+  });
+
+  describe('Sói Quỷ (Demon Wolf) - Lựa chọn Lây lan hoặc Cắn chết', () => {
+    it('Chế độ Cắn chết: Nạn nhân bị cắn chết bình thường và không tiêu hao lượt lây lan', () => {
+      const game = new WerewolfGame('game-demon-kill', 'g1', 'c1', 'h1');
+      game.addPlayer('demon', 'Sói Quỷ');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+      game.addPlayer('v3', 'Dân 3');
+
+      const demon = game.players.get('demon')!;
+      demon.roleId = 'DEMON_WOLF';
+      demon.faction = 'WEREWOLF';
+      demon.skills.demonWolfInfectRemaining = 1;
+      demon.skills.demonWolfMode = 'KILL';
+
+      game.startNight();
+
+      // Vote cắn v1
+      game.submitAction({
+        userId: 'demon',
+        roleId: 'DEMON_WOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'v1',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+
+      // Chọn chế độ cắn chết
+      game.submitAction({
+        userId: 'demon',
+        roleId: 'DEMON_WOLF',
+        type: 'DEMON_WOLF_KILL_MODE',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+
+      const res = game.resolveNightPhase();
+      expect(res.deaths).toHaveLength(1);
+      expect(res.deaths[0].player.id).toBe('v1');
+      expect(res.wasInfected).toBe(false);
+      // Lượt lây lan vẫn còn nguyên vẹn
+      expect(game.players.get('demon')?.skills.demonWolfInfectRemaining).toBe(1);
+    });
+
+    it('Chế độ Lây lan: Nạn nhân biến thành Sói và tiêu hao 1 lượt lây lan', () => {
+      const game = new WerewolfGame('game-demon-infect', 'g1', 'c1', 'h1');
+      game.addPlayer('demon', 'Sói Quỷ');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+      game.addPlayer('v3', 'Dân 3');
+
+      const demon = game.players.get('demon')!;
+      demon.roleId = 'DEMON_WOLF';
+      demon.faction = 'WEREWOLF';
+      demon.skills.demonWolfInfectRemaining = 1;
+      demon.skills.demonWolfMode = 'INFECT';
+
+      game.startNight();
+
+      // Vote cắn v1
+      game.submitAction({
+        userId: 'demon',
+        roleId: 'DEMON_WOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'v1',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+
+      // Chọn chế độ lây lan
+      game.submitAction({
+        userId: 'demon',
+        roleId: 'DEMON_WOLF',
+        type: 'DEMON_WOLF_INFECT',
+        targetId: 'v1',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+
+      const res = game.resolveNightPhase();
+      expect(res.deaths).toHaveLength(0); // Không ai chết
+      expect(res.wasInfected).toBe(true);
+      expect(res.newWerewolfId).toBe('v1');
+      expect(game.players.get('v1')?.faction).toBe('WEREWOLF');
+      expect(game.players.get('v1')?.roleId).toBe('WEREWOLF');
+      expect(game.players.get('demon')?.skills.demonWolfInfectRemaining).toBe(0); // Tiêu hao lượt
+    });
+  });
+
+  describe('Sói Cuồng Nộ (Berserk Wolf) - Phế kỹ năng khi có sói chết', () => {
+    it('Chưa có sói nào chết thì không thể phế kỹ năng ai', () => {
+      const game = new WerewolfGame('game-berserk-0', 'g1', 'c1', 'h1');
+      game.addPlayer('berserk', 'Sói Cuồng Nộ');
+      game.addPlayer('seer', 'Tiên tri');
+      game.addPlayer('v1', 'Dân 1');
+      game.addPlayer('v2', 'Dân 2');
+
+      game.players.get('berserk')!.roleId = 'BERSERK_WOLF';
+      game.players.get('berserk')!.faction = 'WEREWOLF';
+      game.players.get('seer')!.roleId = 'SEER';
+
+      expect(game.getDeadWolvesCount()).toBe(0);
+
+      game.startNight();
+
+      const res = game.submitAction({
+        userId: 'berserk',
+        roleId: 'BERSERK_WOLF',
+        type: 'BERSERK_DISABLE',
+        targetId: 'seer',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.message).toContain('chưa có lượt phế kỹ năng nào');
+    });
+
+    it('Khi có 1 sói chết, Sói Cuồng Nộ phế kỹ năng soi của Tiên tri', () => {
+      const game = new WerewolfGame('game-berserk-seer', 'g1', 'c1', 'h1');
+      game.addPlayer('berserk', 'Sói Cuồng Nộ');
+      game.addPlayer('deadWolf', 'Sói Đã Chết');
+      game.addPlayer('seer', 'Tiên tri');
+      game.addPlayer('v1', 'Dân 1');
+
+      game.players.get('berserk')!.roleId = 'BERSERK_WOLF';
+      game.players.get('berserk')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.roleId = 'WEREWOLF';
+      game.players.get('deadWolf')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.isAlive = false;
+      game.players.get('deadWolf')!.deathReason = 'LYNCH';
+
+      game.players.get('seer')!.roleId = 'SEER';
+
+      expect(game.getDeadWolvesCount()).toBe(1);
+
+      game.startNight();
+
+      // Sói cuồng nộ phế kỹ năng Tiên tri
+      const disableAction = game.submitAction({
+        userId: 'berserk',
+        roleId: 'BERSERK_WOLF',
+        type: 'BERSERK_DISABLE',
+        targetId: 'seer',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+      expect(disableAction.success).toBe(true);
+
+      // Tiên tri soi Sói Cuồng Nộ
+      game.submitAction({
+        userId: 'seer',
+        roleId: 'SEER',
+        type: 'SEER_INVESTIGATE',
+        targetId: 'berserk',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+
+      const res = game.resolveNightPhase();
+      expect(res.silencedUserId).toBe('seer');
+      expect(res.investigationResults).toHaveLength(1);
+      expect(res.investigationResults[0].isSilenced).toBe(true);
+      // Đã dùng 1 lượt
+      expect(game.players.get('berserk')!.skills.berserkUsedDisables).toBe(1);
+    });
+
+    it('Sói Cuồng Nộ phế kỹ năng bảo vệ của Bác sĩ khiến nạn nhân bị cắn chết', () => {
+      const game = new WerewolfGame('game-berserk-doc', 'g1', 'c1', 'h1');
+      game.addPlayer('berserk', 'Sói Cuồng Nộ');
+      game.addPlayer('deadWolf', 'Sói Đã Chết');
+      game.addPlayer('doc', 'Bác sĩ');
+      game.addPlayer('v1', 'Dân 1');
+
+      game.players.get('berserk')!.roleId = 'BERSERK_WOLF';
+      game.players.get('berserk')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.roleId = 'WEREWOLF';
+      game.players.get('deadWolf')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.isAlive = false;
+
+      game.players.get('doc')!.roleId = 'DOCTOR';
+
+      game.startNight();
+
+      // Phế Bác sĩ
+      game.submitAction({
+        userId: 'berserk',
+        roleId: 'BERSERK_WOLF',
+        type: 'BERSERK_DISABLE',
+        targetId: 'doc',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+
+      // Bác sĩ cố gắng cứu v1
+      game.submitAction({
+        userId: 'doc',
+        roleId: 'DOCTOR',
+        type: 'DOCTOR_PROTECT',
+        targetId: 'v1',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+
+      // Sói cắn v1
+      game.submitAction({
+        userId: 'berserk',
+        roleId: 'BERSERK_WOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'v1',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+
+      const res = game.resolveNightPhase();
+      // v1 vẫn bị cắn chết vì Bác sĩ đã bị phế
+      expect(res.deaths).toHaveLength(1);
+      expect(res.deaths[0].player.id).toBe('v1');
+      expect(res.wasProtected).toBe(false);
+    });
+
+    it('Sói Cuồng Nộ phế kỹ năng Thợ săn khiến Thợ săn chết không thể nổ súng', () => {
+      const game = new WerewolfGame('game-berserk-hunter', 'g1', 'c1', 'h1');
+      game.addPlayer('berserk', 'Sói Cuồng Nộ');
+      game.addPlayer('deadWolf', 'Sói Đã Chết');
+      game.addPlayer('hunter', 'Thợ săn');
+      game.addPlayer('v1', 'Dân 1');
+
+      game.players.get('berserk')!.roleId = 'BERSERK_WOLF';
+      game.players.get('berserk')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.roleId = 'WEREWOLF';
+      game.players.get('deadWolf')!.faction = 'WEREWOLF';
+      game.players.get('deadWolf')!.isAlive = false;
+
+      game.players.get('hunter')!.roleId = 'HUNTER';
+
+      game.startNight();
+
+      // Phế Thợ săn
+      game.submitAction({
+        userId: 'berserk',
+        roleId: 'BERSERK_WOLF',
+        type: 'BERSERK_DISABLE',
+        targetId: 'hunter',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+
+      // Cắn Thợ săn
+      game.submitAction({
+        userId: 'berserk',
+        roleId: 'BERSERK_WOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'hunter',
+        nightNumber: 2,
+        phase: 'NIGHT',
+      });
+
+      const res = game.resolveNightPhase();
+      expect(res.deaths).toHaveLength(1);
+      expect(res.deaths[0].player.id).toBe('hunter');
+      // Thợ săn bị phế nên không kích hoạt súng trả thù!
+      expect(res.hunterTriggeredId).toBeNull();
+    });
+  });
 });

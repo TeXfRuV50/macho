@@ -916,6 +916,47 @@ export class InteractionHandler {
         phase: 'NIGHT',
       });
       await this.safeReply(interaction, { content: 'Đã bỏ qua không dùng thuốc đêm nay.', ephemeral: true });
+    } else if (action === 'demon_mode_infect' || action === 'demon_mode_kill') {
+      const mode = action === 'demon_mode_infect' ? 'INFECT' : 'KILL';
+      const player = session.game.players.get(interaction.user.id);
+      if (!player || player.roleId !== 'DEMON_WOLF') {
+        await this.safeReply(interaction, { content: '❌ Bạn không phải là Sói quỷ!', ephemeral: true });
+        return;
+      }
+
+      if (mode === 'INFECT' && (player.skills.demonWolfInfectRemaining ?? 0) <= 0) {
+        await this.safeReply(interaction, { content: '❌ Bạn đã hết lượt lây lan của trận này!', ephemeral: true });
+        return;
+      }
+
+      session.game.submitAction({
+        userId: interaction.user.id,
+        roleId: 'DEMON_WOLF',
+        type: mode === 'INFECT' ? 'DEMON_WOLF_INFECT' : 'DEMON_WOLF_KILL_MODE',
+        nightNumber: session.game.nightNumber,
+        phase: 'NIGHT',
+      });
+
+      player.skills.demonWolfMode = mode;
+
+      const updatedResponse = WerewolfComponents.buildPlayerNightSkillResponse(session.game, player);
+      const modeText = mode === 'INFECT' ? '🩸 Lây lan thành Sói' : '💀 Cắn chết';
+      try {
+        if (interaction.isMessageComponent()) {
+          await interaction.update({
+            content: `✅ **Đã chuyển chế độ Sói quỷ sang: ${modeText}**\n\n${updatedResponse.content}`,
+            components: updatedResponse.components,
+          });
+          return;
+        }
+      } catch {
+        // Fallback
+      }
+      await this.safeReply(interaction, {
+        content: `✅ **Đã chuyển chế độ Sói quỷ sang: ${modeText}**\n\n${updatedResponse.content}`,
+        components: updatedResponse.components,
+        ephemeral: true,
+      });
     } else if (action === 'preset_basic') {
       const balanced = balancePresetForPlayerCount(BUILTIN_PRESETS.basic.config, session.game.players.size);
       session.game.setConfig(balanced);
@@ -1302,10 +1343,82 @@ export class InteractionHandler {
         nightNumber: session.game.nightNumber,
         phase: 'NIGHT',
       });
-      await this.safeReply(interaction, {
-        content: res.success ? `🐺 Bạn đã bí mật ra tay tiêu diệt <@${selectedValue}>!` : res.message,
-        ephemeral: true,
+      if (!res.success) {
+        await this.safeReply(interaction, {
+          content: `❌ ${res.message}`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const player = session.game.players.get(interaction.user.id);
+      if (player) {
+        const updatedResponse = WerewolfComponents.buildPlayerNightSkillResponse(session.game, player);
+        try {
+          if (interaction.isMessageComponent()) {
+            await interaction.update({
+              content: `🐺 **Bạn đã bí mật chọn cắn hạ <@${selectedValue}>!**\n\n${updatedResponse.content}`,
+              components: updatedResponse.components,
+            });
+            return;
+          }
+        } catch {
+          // Fallback if update fails
+        }
+        await this.safeReply(interaction, {
+          content: `🐺 **Bạn đã bí mật chọn cắn hạ <@${selectedValue}>!**\n\n${updatedResponse.content}`,
+          components: updatedResponse.components,
+          ephemeral: true,
+        });
+      } else {
+        await this.safeReply(interaction, {
+          content: `🐺 Bạn đã bí mật ra tay tiêu diệt <@${selectedValue}>!`,
+          ephemeral: true,
+        });
+      }
+    } else if (action === 'berserk_disable_target') {
+      const res = session.game.submitAction({
+        userId: interaction.user.id,
+        roleId: 'BERSERK_WOLF',
+        type: 'BERSERK_DISABLE',
+        targetId: selectedValue,
+        nightNumber: session.game.nightNumber,
+        phase: 'NIGHT',
       });
+
+      if (!res.success) {
+        await this.safeReply(interaction, {
+          content: `❌ ${res.message}`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const player = session.game.players.get(interaction.user.id);
+      if (player) {
+        const updatedResponse = WerewolfComponents.buildPlayerNightSkillResponse(session.game, player);
+        try {
+          if (interaction.isMessageComponent()) {
+            await interaction.update({
+              content: `⚡ **Đã chọn phế kỹ năng của <@${selectedValue}> đêm nay!**\n\n${updatedResponse.content}`,
+              components: updatedResponse.components,
+            });
+            return;
+          }
+        } catch {
+          // Fallback if update fails
+        }
+        await this.safeReply(interaction, {
+          content: `⚡ **Đã chọn phế kỹ năng của <@${selectedValue}> đêm nay!**\n\n${updatedResponse.content}`,
+          components: updatedResponse.components,
+          ephemeral: true,
+        });
+      } else {
+        await this.safeReply(interaction, {
+          content: `⚡ Bạn đã chọn phế kỹ năng của <@${selectedValue}> thành công!`,
+          ephemeral: true,
+        });
+      }
     } else if (action === 'cupid_pair') {
       if (interaction.values.length < 2) {
         await this.safeReply(interaction, { content: 'Phải chọn đúng 2 người chơi.', ephemeral: true });

@@ -46,6 +46,35 @@ export class NightResolver {
     let berserkTriggeredNextNight = false;
     let hunterTriggeredId: string | null = null;
 
+    // 0. Sói Cuồng Nộ: Phế kỹ năng của 1 người chơi (Cứ mỗi 1 sói chết = 1 lượt)
+    let silencedUserId: string | null = null;
+    const berserkAction = actions.find((a) => a.type === 'BERSERK_DISABLE');
+    if (berserkAction && berserkAction.targetId) {
+      const berserkPlayer = updatedPlayers.get(berserkAction.userId);
+      if (berserkPlayer && berserkPlayer.isAlive && berserkPlayer.roleId === 'BERSERK_WOLF') {
+        const deadWolvesCount = Array.from(players.values()).filter(
+          (p) =>
+            !p.isAlive &&
+            (p.faction === 'WEREWOLF' ||
+              p.originalRoleId === 'ALPHA_WOLF' ||
+              p.originalRoleId === 'WEREWOLF' ||
+              p.originalRoleId === 'DEMON_WOLF' ||
+              p.originalRoleId === 'BERSERK_WOLF' ||
+              p.originalRoleId === 'WOLF_SEER' ||
+              p.originalRoleId === 'WHITE_WOLF')
+        ).length;
+        const usedDisables = berserkPlayer.skills.berserkUsedDisables || 0;
+        if (deadWolvesCount > usedDisables) {
+          const target = updatedPlayers.get(berserkAction.targetId);
+          if (target && target.isAlive && target.faction !== 'WEREWOLF') {
+            silencedUserId = target.id;
+            berserkPlayer.skills.berserkUsedDisables = usedDisables + 1;
+            logs.push(`⚡ Sói Cuồng Nộ đã phế bỏ hoàn toàn kỹ năng của ${target.name} đêm nay!`);
+          }
+        }
+      }
+    }
+
     // 1. Thần tình yêu (Đêm 1): Ghép đôi
     if (nightNumber === 1) {
       const cupidAction = actions.find((a) => a.type === 'CUPID_LINK');
@@ -68,6 +97,11 @@ export class NightResolver {
     for (const act of bodyguardActions) {
       const bg = updatedPlayers.get(act.userId);
       if (!bg || !bg.isAlive) continue;
+
+      if (silencedUserId && bg.id === silencedUserId) {
+        logs.push(`⚡ Kỹ năng bảo vệ của Bảo vệ ${bg.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
+        continue;
+      }
 
       const targetId = act.targetId;
       if (!targetId) continue;
@@ -92,6 +126,11 @@ export class NightResolver {
     for (const act of doctorActions) {
       const doc = updatedPlayers.get(act.userId);
       if (!doc || !doc.isAlive) continue;
+
+      if (silencedUserId && doc.id === silencedUserId) {
+        logs.push(`⚡ Kỹ năng chữa trị của Bác sĩ ${doc.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
+        continue;
+      }
 
       const targetId = act.targetId;
       if (!targetId) continue;
@@ -135,14 +174,16 @@ export class NightResolver {
 
       if (vote.targetId) {
         const target = updatedPlayers.get(vote.targetId);
-        if (target && target.isAlive) {
+        // Bầy sói không được vote cắn đồng đội phe Sói
+        if (target && target.isAlive && target.faction !== 'WEREWOLF') {
           voteCounts.set(vote.targetId, (voteCounts.get(vote.targetId) || 0) + 1);
         }
       }
 
       if (vote.secondaryTargetId && isAlphaWolfActive) {
         const target2 = updatedPlayers.get(vote.secondaryTargetId);
-        if (target2 && target2.isAlive && target2.id !== vote.targetId) {
+        // Bầy sói không được vote cắn đồng đội phe Sói
+        if (target2 && target2.isAlive && target2.faction !== 'WEREWOLF' && target2.id !== vote.targetId) {
           voteCounts.set(vote.secondaryTargetId, (voteCounts.get(vote.secondaryTargetId) || 0) + 1);
         }
       }
@@ -221,19 +262,17 @@ export class NightResolver {
     wolfVictimId = wolfVictimIds[0] || null;
     wolfVictimId2 = wolfVictimIds[1] || null;
 
-    // 4. Kiểm tra Sói quỷ chuyển hóa (Demon Wolf Infect)
-    const infectAction = actions.find((a) => a.type === 'DEMON_WOLF_INFECT');
+    // 4. Kiểm tra Sói quỷ (Lây lan hay cắn chết)
     let demonWolfAttemptInfect = false;
-    let demonWolfPlayer: Player | undefined;
-
-    if (infectAction && wolfVictimId && infectAction.targetId === wolfVictimId) {
-      demonWolfPlayer = updatedPlayers.get(infectAction.userId);
-      if (
-        demonWolfPlayer &&
-        demonWolfPlayer.isAlive &&
-        demonWolfPlayer.roleId === 'DEMON_WOLF' &&
-        demonWolfPlayer.skills.demonWolfInfectRemaining > 0
-      ) {
+    let demonWolfPlayer = Array.from(updatedPlayers.values()).find(
+      (p) => p.isAlive && p.roleId === 'DEMON_WOLF'
+    );
+    if (demonWolfPlayer && demonWolfPlayer.skills.demonWolfInfectRemaining > 0) {
+      const infectAction = actions.find((a) => a.type === 'DEMON_WOLF_INFECT' && a.userId === demonWolfPlayer?.id);
+      const killAction = actions.find((a) => a.type === 'DEMON_WOLF_KILL_MODE' && a.userId === demonWolfPlayer?.id);
+      if (killAction) {
+        demonWolfAttemptInfect = false;
+      } else if (infectAction || demonWolfPlayer.skills.demonWolfMode === 'INFECT') {
         demonWolfAttemptInfect = true;
       }
     }
@@ -247,22 +286,26 @@ export class NightResolver {
     if (witchHealAction && wolfVictimId) {
       const witch = updatedPlayers.get(witchHealAction.userId);
       if (witch && witch.isAlive && witch.skills.witchHealRemaining > 0) {
-        // Kiểm tra luật tự cứu của Phù thủy
-        let canHeal = true;
-        if (wolfVictimId === witch.id) {
-          if (nightNumber === 1 && !config.rules.witchCanSelfHealFirstNightOnly && !config.rules.witchCanSelfHealAlways) {
-            canHeal = false;
-          } else if (nightNumber > 1 && !config.rules.witchCanSelfHealAlways) {
-            canHeal = false;
-          }
-        }
-
-        if (canHeal) {
-          wasHealed = true;
-          witch.skills.witchHealRemaining -= 1;
-          logs.push(`Phù thủy đã sử dụng bình cứu.`);
+        if (silencedUserId && witch.id === silencedUserId) {
+          logs.push(`⚡ Kỹ năng bình cứu của Phù thủy ${witch.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
         } else {
-          logs.push(`Phù thủy không được phép tự cứu bản thân đêm nay theo luật.`);
+          // Kiểm tra luật tự cứu của Phù thủy
+          let canHeal = true;
+          if (wolfVictimId === witch.id) {
+            if (nightNumber === 1 && !config.rules.witchCanSelfHealFirstNightOnly && !config.rules.witchCanSelfHealAlways) {
+              canHeal = false;
+            } else if (nightNumber > 1 && !config.rules.witchCanSelfHealAlways) {
+              canHeal = false;
+            }
+          }
+
+          if (canHeal) {
+            wasHealed = true;
+            witch.skills.witchHealRemaining -= 1;
+            logs.push(`Phù thủy đã sử dụng bình cứu.`);
+          } else {
+            logs.push(`Phù thủy không được phép tự cứu bản thân đêm nay theo luật.`);
+          }
         }
       }
     }
@@ -274,15 +317,19 @@ export class NightResolver {
       } else {
         const witch = updatedPlayers.get(witchPoisonAction.userId);
         if (witch && witch.isAlive && witch.skills.witchPoisonRemaining > 0) {
-          // Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm
-          if (wasHealed && witchHealAction?.userId === witch.id) {
-            logs.push(`Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm.`);
+          if (silencedUserId && witch.id === silencedUserId) {
+            logs.push(`⚡ Kỹ năng bình độc của Phù thủy ${witch.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
           } else {
-            const target = updatedPlayers.get(witchPoisonAction.targetId);
-            if (target && target.isAlive) {
-              poisonedVictimId = target.id;
-              witch.skills.witchPoisonRemaining -= 1;
-              logs.push(`Phù thủy đã hạ độc một người.`);
+            // Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm
+            if (wasHealed && witchHealAction?.userId === witch.id) {
+              logs.push(`Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm.`);
+            } else {
+              const target = updatedPlayers.get(witchPoisonAction.targetId);
+              if (target && target.isAlive) {
+                poisonedVictimId = target.id;
+                witch.skills.witchPoisonRemaining -= 1;
+                logs.push(`Phù thủy đã hạ độc một người.`);
+              }
             }
           }
         }
@@ -298,6 +345,17 @@ export class NightResolver {
 
       const target = updatedPlayers.get(act.targetId);
       if (!target) continue;
+
+      if (silencedUserId && seer.id === silencedUserId) {
+        investigationResults.push({
+          seerId: seer.id,
+          targetId: target.id,
+          isWolf: false,
+          isSilenced: true,
+        });
+        logs.push(`⚡ Kỹ năng soi của Tiên tri ${seer.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
+        continue;
+      }
 
       // Sói thường, Sói quỷ, Sói cuồng nộ, Sói trắng, Sói tiên tri đều là Sói
       const isWolf = target.faction === 'WEREWOLF' || target.roleId === 'WHITE_WOLF' || target.roleId === 'WOLF_SEER';
@@ -320,6 +378,18 @@ export class NightResolver {
       const p2 = updatedPlayers.get(act.secondaryTargetId);
       if (!p1 || !p2) continue;
 
+      if (silencedUserId && det.id === silencedUserId) {
+        detectiveResults.push({
+          detectiveId: det.id,
+          target1Id: p1.id,
+          target2Id: p2.id,
+          isSameTeam: false,
+          isSilenced: true,
+        });
+        logs.push(`⚡ Kỹ năng điều tra của Thám tử ${det.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
+        continue;
+      }
+
       const isSameTeam = p1.faction === p2.faction;
       detectiveResults.push({
         detectiveId: det.id,
@@ -336,6 +406,11 @@ export class NightResolver {
       const ws = updatedPlayers.get(act.userId);
       if (!ws || !ws.isAlive) continue;
       if (!act.targetId) continue;
+
+      if (silencedUserId && ws.id === silencedUserId) {
+        logs.push(`⚡ Kỹ năng soi của Sói tiên tri ${ws.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
+        continue;
+      }
 
       const aliveWolves = Array.from(updatedPlayers.values()).filter((p) => p.isAlive && p.faction === 'WEREWOLF');
       if (aliveWolves.length <= 1) {
@@ -364,11 +439,15 @@ export class NightResolver {
       if (whiteWolfAction && whiteWolfAction.targetId) {
         const whiteWolf = updatedPlayers.get(whiteWolfAction.userId);
         if (whiteWolf && whiteWolf.isAlive && whiteWolf.roleId === 'WHITE_WOLF') {
-          const target = updatedPlayers.get(whiteWolfAction.targetId);
-          // Sói trắng chỉ được cắn thành viên khác thuộc Phe Sói
-          if (target && target.isAlive && target.faction === 'WEREWOLF' && target.id !== whiteWolf.id) {
-            whiteWolfVictimId = target.id;
-            logs.push(`Sói trắng đã bí mật ra tay tiêu diệt đồng loại.`);
+          if (silencedUserId && whiteWolf.id === silencedUserId) {
+            logs.push(`⚡ Kỹ năng cắn riêng của Sói trắng ${whiteWolf.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
+          } else {
+            const target = updatedPlayers.get(whiteWolfAction.targetId);
+            // Sói trắng có thể cắn Dân làng hoặc bất kỳ ai còn sống ngoại trừ bản thân
+            if (target && target.isAlive && target.id !== whiteWolf.id) {
+              whiteWolfVictimId = target.id;
+              logs.push(`Sói trắng đã bí mật ra tay tiêu diệt một nạn nhân trong đêm.`);
+            }
           }
         }
       }
@@ -436,18 +515,22 @@ export class NightResolver {
     if (skAction && skAction.targetId) {
       const sk = updatedPlayers.get(skAction.userId);
       if (sk && sk.isAlive && sk.roleId === 'SERIAL_KILLER') {
-        const skTarget = updatedPlayers.get(skAction.targetId);
-        if (skTarget && skTarget.isAlive) {
-          if (protectedPlayerIds.has(skTarget.id)) {
-            logs.push(`Kẻ sát nhân đã đâm ${skTarget.name}, nhưng nạn nhân may mắn được che chở an toàn!`);
-          } else {
-            skTarget.isAlive = false;
-            skTarget.deathReason = 'SERIAL_KILLER';
-            skTarget.deathNight = nightNumber;
-            skTarget.deathPhase = 'NIGHT';
-            deaths.push({ player: skTarget, reason: 'SERIAL_KILLER' });
-            serialKillerVictimId = skTarget.id;
-            logs.push(`${skTarget.name} đã bị Kẻ sát nhân đâm chết bằng một nhát dao chí mạng.`);
+        if (silencedUserId && sk.id === silencedUserId) {
+          logs.push(`⚡ Kỹ năng hạ sát của Kẻ sát nhân ${sk.name} đã bị Sói Cuồng Nộ phế bỏ đêm nay!`);
+        } else {
+          const skTarget = updatedPlayers.get(skAction.targetId);
+          if (skTarget && skTarget.isAlive) {
+            if (protectedPlayerIds.has(skTarget.id)) {
+              logs.push(`Kẻ sát nhân đã đâm ${skTarget.name}, nhưng nạn nhân may mắn được che chở an toàn!`);
+            } else {
+              skTarget.isAlive = false;
+              skTarget.deathReason = 'SERIAL_KILLER';
+              skTarget.deathNight = nightNumber;
+              skTarget.deathPhase = 'NIGHT';
+              deaths.push({ player: skTarget, reason: 'SERIAL_KILLER' });
+              serialKillerVictimId = skTarget.id;
+              logs.push(`${skTarget.name} đã bị Kẻ sát nhân đâm chết bằng một nhát dao chí mạng.`);
+            }
           }
         }
       }
@@ -514,6 +597,8 @@ export class NightResolver {
       if (deadPlayer.roleId === 'HUNTER' && !deadPlayer.skills.hasUsedHunterShot) {
         if (death.reason === 'WITCH_POISON' && !config.rules.hunterCanShootIfPoisoned) {
           logs.push(`Thợ săn ${deadPlayer.name} bị chết vì độc dược nên không kịp rút súng.`);
+        } else if (silencedUserId && deadPlayer.id === silencedUserId) {
+          logs.push(`⚡ Thợ săn ${deadPlayer.name} đã bị Sói Cuồng Nộ phế kỹ năng nên không thể nổ súng trả thù!`);
         } else {
           hunterTriggeredId = deadPlayer.id;
           logs.push(`Thợ săn ${deadPlayer.name} tử trận! Khẩu súng săn chuẩn bị khai hỏa.`);
@@ -532,6 +617,7 @@ export class NightResolver {
         wasInfected,
         newWerewolfId,
         berserkTriggeredNextNight,
+        silencedUserId,
         hunterTriggeredId,
         serialKillerVictimId,
         wasSerialKillerImmune,

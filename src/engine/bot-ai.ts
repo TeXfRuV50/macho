@@ -112,7 +112,7 @@ export class WerewolfBotAi {
       let chosenTargetId: string | null = null;
       let chosenTarget2Id: string | null = null;
       const nonWolves = alivePlayers.filter((p) => p.faction !== 'WEREWOLF');
-      const targetPool = nonWolves.length > 0 ? nonWolves : alivePlayers.filter((p) => p.id !== aliveWolfBots[0].id);
+      const targetPool = nonWolves;
 
       if (existingWolfVote?.targetId) {
         chosenTargetId = existingWolfVote.targetId;
@@ -150,19 +150,44 @@ export class WerewolfBotAi {
         }
         logs.push(`${aliveWolfBots.length} Bot Ma Sói đã đồng thuận bỏ phiếu cắn xé${chosenTarget2Id ? ' (2 mục tiêu do có Sói Trùm)' : ''}.`);
 
-        // Sói quỷ bot (Infect)
+        // Sói quỷ bot (Lựa chọn lây lan hoặc cắn chết)
         const demonWolfBot = aliveWolfBots.find(
-          (w) => w.roleId === 'DEMON_WOLF' && w.skills.demonWolfInfectRemaining > 0
+          (w) => w.roleId === 'DEMON_WOLF'
         );
-        if (demonWolfBot && Math.random() < 0.4) {
+        if (demonWolfBot) {
+          const willInfect = demonWolfBot.skills.demonWolfInfectRemaining > 0 && Math.random() < 0.5;
           game.submitAction({
             userId: demonWolfBot.id,
             roleId: 'DEMON_WOLF',
-            type: 'DEMON_WOLF_INFECT',
+            type: willInfect ? 'DEMON_WOLF_INFECT' : 'DEMON_WOLF_KILL_MODE',
             targetId: chosenTargetId,
             nightNumber: game.nightNumber,
             phase: 'NIGHT',
           });
+          logs.push(`Bot Sói Quỷ chọn: ${willInfect ? '🩸 Lây lan thành Sói' : '💀 Cắn chết'}.`);
+        }
+
+        // Sói cuồng nộ bot (Phế kỹ năng khi có lượt)
+        const berserkWolfBot = aliveWolfBots.find(
+          (w) => w.roleId === 'BERSERK_WOLF'
+        );
+        if (berserkWolfBot) {
+          const deadWolvesCount = game.getDeadWolvesCount();
+          const usedDisables = berserkWolfBot.skills.berserkUsedDisables || 0;
+          if (deadWolvesCount > usedDisables && nonWolves.length > 0) {
+            const disableTarget = nonWolves[Math.floor(Math.random() * nonWolves.length)];
+            const res = game.submitAction({
+              userId: berserkWolfBot.id,
+              roleId: 'BERSERK_WOLF',
+              type: 'BERSERK_DISABLE',
+              targetId: disableTarget.id,
+              nightNumber: game.nightNumber,
+              phase: 'NIGHT',
+            });
+            if (res.success) {
+              logs.push(`Bot Sói Cuồng Nộ đã chọn phế kỹ năng của ${disableTarget.name}.`);
+            }
+          }
         }
       }
     }
@@ -254,11 +279,9 @@ export class WerewolfBotAi {
     if (game.nightNumber >= 2 && game.nightNumber % 2 === 0) {
       const whiteWolfBot = aliveBots.find((p) => p.roleId === 'WHITE_WOLF');
       if (whiteWolfBot) {
-        const otherWolves = alivePlayers.filter(
-          (p) => p.faction === 'WEREWOLF' && p.id !== whiteWolfBot.id
-        );
-        if (otherWolves.length > 0 && Math.random() < 0.5) {
-          const target = otherWolves[Math.floor(Math.random() * otherWolves.length)];
+        const potentialTargets = alivePlayers.filter((p) => p.id !== whiteWolfBot.id);
+        if (potentialTargets.length > 0 && Math.random() < 0.6) {
+          const target = potentialTargets[Math.floor(Math.random() * potentialTargets.length)];
           const res = game.submitAction({
             userId: whiteWolfBot.id,
             roleId: 'WHITE_WOLF',
@@ -269,7 +292,7 @@ export class WerewolfBotAi {
           });
           if (res.success) {
             count++;
-            logs.push(`Bot Sói trắng (${whiteWolfBot.name}) đã chọn giết đồng loại.`);
+            logs.push(`Bot Sói trắng (${whiteWolfBot.name}) đã chọn cắn ${target.name}.`);
           }
         }
       }

@@ -191,8 +191,8 @@ export class WerewolfComponents {
    * Menu chọn mục tiêu cắn của Bầy sói
    */
   public static buildWolfBiteMenu(game: WerewolfGame, wolfId: string): ActionRowBuilder<StringSelectMenuBuilder>[] {
-    // Sói chọn cắn người còn sống không thuộc phe Sói (hoặc bất kỳ ai còn sống ngoại trừ bản thân)
-    const targets = Array.from(game.players.values()).filter((p) => p.isAlive && p.id !== wolfId);
+    // Sói chỉ được chọn cắn người còn sống không thuộc phe Sói (không thể cắn đồng đội Sói)
+    const targets = Array.from(game.players.values()).filter((p) => p.isAlive && p.faction !== 'WEREWOLF');
     const pages = paginateOptions(targets, 25);
     const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
     const voteTally = game.getWolfVoteTally();
@@ -473,29 +473,76 @@ export class WerewolfComponents {
   }
 
   /**
-   * Menu Sói trắng chọn giết đồng loại (Đêm chẵn >= 2)
+   * Menu Sói trắng chọn cắn (Đêm chẵn >= 2): Có thể cắn Dân làng hoặc Sói khác (ngoại trừ bản thân)
    */
   public static buildWhiteWolfMenu(game: WerewolfGame, whiteWolfId: string): ActionRowBuilder<StringSelectMenuBuilder>[] {
-    const wolfTargets = Array.from(game.players.values()).filter(
-      (p) => p.isAlive && p.faction === 'WEREWOLF' && p.id !== whiteWolfId
+    const targets = Array.from(game.players.values()).filter(
+      (p) => p.isAlive && p.id !== whiteWolfId
     );
 
-    if (wolfTargets.length === 0) return [];
+    if (targets.length === 0) return [];
 
-    const select = new StringSelectMenuBuilder()
-      .setCustomId(buildCustomId(game.id, 'NIGHT', 'white_wolf_target', whiteWolfId))
-      .setPlaceholder('Bí mật giết một con Sói khác trong bầy...');
+    const pages = paginateOptions(targets, 25);
+    const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
 
-    select.addOptions(
-      wolfTargets.map((p) =>
-        new StringSelectMenuOptionBuilder()
-          .setLabel(`Giết: ${p.name}`)
-          .setValue(p.id)
-          .setEmoji('🐺')
-      )
+    pages.forEach((pageTargets, idx) => {
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(buildCustomId(game.id, 'NIGHT', 'white_wolf_target', whiteWolfId, `page_${idx}`))
+        .setPlaceholder('Bí mật cắn một người (Dân làng hoặc Sói khác)...');
+
+      select.addOptions(
+        pageTargets.map((p) =>
+          new StringSelectMenuOptionBuilder()
+            .setLabel(p.isBot ? `🤖 ${p.name}` : `${p.name}`)
+            .setDescription(p.faction === 'WEREWOLF' ? 'Đồng loại Phe Sói' : (p.isBot ? 'Người chơi ảo (Bot)' : `ID: ${p.id}`))
+            .setValue(p.id)
+            .setEmoji('🐺')
+        )
+      );
+
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+    });
+
+    return rows;
+  }
+
+  /**
+   * Menu phế kỹ năng của Sói Cuồng Nộ (Berserk Wolf)
+   */
+  public static buildBerserkDisableMenu(
+    game: WerewolfGame,
+    berserkId: string,
+    availableDisables: number
+  ): ActionRowBuilder<StringSelectMenuBuilder>[] {
+    if (availableDisables <= 0) return [];
+
+    const targets = Array.from(game.players.values()).filter(
+      (p) => p.isAlive && p.faction !== 'WEREWOLF'
     );
+    if (targets.length === 0) return [];
 
-    return [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)];
+    const pages = paginateOptions(targets, 25);
+    const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+
+    pages.forEach((pageTargets, idx) => {
+      const select = new StringSelectMenuBuilder()
+        .setCustomId(buildCustomId(game.id, 'NIGHT', 'berserk_disable_target', berserkId, `page_${idx}`))
+        .setPlaceholder(`⚡ Chọn 1 người chơi để phế kỹ năng (Còn ${availableDisables} lượt)...`);
+
+      select.addOptions(
+        pageTargets.map((p) =>
+          new StringSelectMenuOptionBuilder()
+            .setLabel(p.isBot ? `⚡ Phế: 🤖 ${p.name}` : `⚡ Phế: ${p.name}`)
+            .setDescription(p.isBot ? 'Người chơi ảo (Bot)' : `ID: ${p.id}`)
+            .setValue(p.id)
+            .setEmoji('⚡')
+        )
+      );
+
+      rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+    });
+
+    return rows;
   }
 
   /**
@@ -701,6 +748,55 @@ export class WerewolfComponents {
       components.push(...biteMenus);
 
       // Kỹ năng phụ riêng của từng loại sói
+      let demonInfo = '';
+      if (player.roleId === 'DEMON_WOLF') {
+        const remainingInfect = player.skills.demonWolfInfectRemaining ?? 1;
+        const currentMode = player.skills.demonWolfMode || (remainingInfect > 0 ? 'INFECT' : 'KILL');
+        demonInfo =
+          remainingInfect > 0
+            ? `\n🩸 **LỰA CHỌN SÓI QUỶ:** Đang chọn: **${currentMode === 'INFECT' ? '🩸 Lây lan thành Sói' : '💀 Cắn chết'}** *(Còn ${remainingInfect} lượt lây)*`
+            : `\n🩸 **LỰA CHỌN SÓI QUỶ:** Đã hết lượt lây lan, tự động chọn: **💀 Cắn chết**`;
+
+        if (remainingInfect > 0) {
+          const demonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(buildCustomId(game.id, 'NIGHT', 'demon_mode_infect', player.id))
+              .setLabel(`🩸 Lây lan thành Sói (${remainingInfect} lượt)`)
+              .setStyle(currentMode === 'INFECT' ? ButtonStyle.Success : ButtonStyle.Secondary),
+            new ButtonBuilder()
+              .setCustomId(buildCustomId(game.id, 'NIGHT', 'demon_mode_kill', player.id))
+              .setLabel('💀 Cắn chết')
+              .setStyle(currentMode === 'KILL' ? ButtonStyle.Danger : ButtonStyle.Secondary)
+          );
+          components.push(demonRow);
+        }
+      }
+
+      let berserkInfo = '';
+      if (player.roleId === 'BERSERK_WOLF') {
+        const deadWolvesCount = game.getDeadWolvesCount();
+        const usedDisables = player.skills.berserkUsedDisables || 0;
+        const availableDisables = Math.max(0, deadWolvesCount - usedDisables);
+
+        const currentDisableAction = game.currentPhaseActions.find(
+          (a) => a.type === 'BERSERK_DISABLE' && a.userId === player.id
+        );
+        const disabledTarget = currentDisableAction?.targetId ? game.players.get(currentDisableAction.targetId) : null;
+
+        if (deadWolvesCount === 0) {
+          berserkInfo = `\n⚡ **KỸ NĂNG SÓI CUỒNG NỘ:** Chưa có con sói nào chết nên bạn chưa thể phế kỹ năng của ai (cứ 1 sói chết = 1 lượt phế kỹ năng).`;
+        } else if (availableDisables > 0) {
+          const targetText = disabledTarget
+            ? `\n👉 **Đang phế kỹ năng của:** **${disabledTarget.name}** (<@${disabledTarget.id}>)`
+            : '';
+          berserkInfo = `\n⚡ **KỸ NĂNG SÓI CUỒNG NỘ:** Có **${availableDisables}** lượt phế kỹ năng khả dụng (từ ${deadWolvesCount} sói đã ngã xuống).${targetText}`;
+          const berserkMenus = WerewolfComponents.buildBerserkDisableMenu(game, player.id, availableDisables);
+          components.push(...berserkMenus);
+        } else {
+          berserkInfo = `\n⚡ **KỸ NĂNG SÓI CUỒNG NỘ:** Đã sử dụng hết ${usedDisables} lượt phế kỹ năng (${deadWolvesCount} sói đã ngã xuống).`;
+        }
+      }
+
       if (player.roleId === 'WOLF_SEER') {
         if (wolves.length > 1) {
           const wsMenus = WerewolfComponents.buildWolfSeerMenu(game, player.id);
@@ -722,7 +818,9 @@ export class WerewolfComponents {
           `🐺 **[BẦY MA SÓI - ĐÊM THỨ ${game.nightNumber}]**\n` +
           `Đồng đội bầy đàn của bạn:\n${wolfList}\n` +
           `${alphaInfo}` +
-          `${tallySection}\n` +
+          `${demonInfo}` +
+          `${berserkInfo}` +
+          `\n${tallySection}\n` +
           `${statusVote}\n\n` +
           instructionText,
         components,

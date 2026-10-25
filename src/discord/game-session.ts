@@ -595,7 +595,9 @@ export class GameSession {
         const seerPlayer = this.game.players.get(inv.seerId);
         const targetPlayer = this.game.players.get(inv.targetId);
         if (seerPlayer && targetPlayer && !seerPlayer.isBot) {
-          const resultText = inv.isWolf
+          const resultText = inv.isSilenced
+            ? `⚡ **Kỹ năng soi của bạn đã bị Sói Cuồng Nộ phế bỏ đêm nay nên không thu thập được thông tin!**`
+            : inv.isWolf
             ? `🐺 **Mục tiêu <@${targetPlayer.id}> (${targetPlayer.name}) THUỘC PHE MA SÓI!**`
             : `🌾 **Mục tiêu <@${targetPlayer.id}> (${targetPlayer.name}) KHÔNG PHẢI là Ma Sói!**`;
 
@@ -616,7 +618,9 @@ export class GameSession {
         const p1 = this.game.players.get(det.target1Id);
         const p2 = this.game.players.get(det.target2Id);
         if (detPlayer && p1 && p2 && !detPlayer.isBot) {
-          const resultText = det.isSameTeam
+          const resultText = det.isSilenced
+            ? `⚡ **Kỹ năng điều tra của bạn đã bị Sói Cuồng Nộ phế bỏ đêm nay nên không có kết quả!**`
+            : det.isSameTeam
             ? `⚖️ **${p1.name}** và **${p2.name}** thuộc **CÙNG MỘT PHE**!`
             : `⚡ **${p1.name}** và **${p2.name}** thuộc **HAI PHE KHÁC NHAU**!`;
 
@@ -626,6 +630,28 @@ export class GameSession {
             channel,
             detPlayer,
             { content: `🔍 **[KẾT QUẢ ĐIỀU TRA ĐÊM ${this.game.nightNumber}]**\n${resultText}` },
+            this.game.id
+          );
+        }
+      }
+
+      // Gửi thông báo cho người chơi bị Sói Cuồng Nộ phế kỹ năng
+      if (dawnResult.silencedUserId) {
+        const silencedPlayer = this.game.players.get(dawnResult.silencedUserId);
+        if (
+          silencedPlayer &&
+          !silencedPlayer.isBot &&
+          silencedPlayer.roleId !== 'SEER' &&
+          silencedPlayer.roleId !== 'DETECTIVE'
+        ) {
+          await this.dmManager.sendPrivate(
+            this.client,
+            guild,
+            channel,
+            silencedPlayer,
+            {
+              content: `⚡ **[BÌNH MINH - ĐÊM ${this.game.nightNumber}]**\nBạn đã bị **Sói Cuồng Nộ** phế bỏ toàn bộ kỹ năng trong đêm qua! Mọi hành động của bạn không có hiệu lực.`,
+            },
             this.game.id
           );
         }

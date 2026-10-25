@@ -48,6 +48,8 @@ export type ActionType =
   | 'GUNNER_SHOOT'
   | 'WOLF_VOTE'
   | 'DEMON_WOLF_INFECT'
+  | 'DEMON_WOLF_KILL_MODE'
+  | 'BERSERK_DISABLE'
   | 'WITCH_HEAL'
   | 'WITCH_POISON'
   | 'WITCH_PASS'
@@ -60,6 +62,8 @@ export interface PlayerSkills {
   witchHealRemaining: number;
   witchPoisonRemaining: number;
   demonWolfInfectRemaining: number;
+  demonWolfMode?: 'INFECT' | 'KILL';
+  berserkUsedDisables?: number;
   lastProtectedTargetId: string | null;
   doctorLastProtectedTargetId?: string | null;
   gunnerBulletsRemaining?: number;
@@ -166,6 +170,7 @@ export interface NightResolutionResult {
   wasInfected: boolean;
   newWerewolfId: string | null;
   berserkTriggeredNextNight: boolean;
+  silencedUserId?: string | null;
   hunterTriggeredId: string | null;
   serialKillerVictimId: string | null;
   wasSerialKillerImmune?: boolean;
@@ -173,12 +178,14 @@ export interface NightResolutionResult {
     seerId: string;
     targetId: string;
     isWolf: boolean;
+    isSilenced?: boolean;
   }>;
   detectiveResults?: Array<{
     detectiveId: string;
     target1Id: string;
     target2Id: string;
     isSameTeam: boolean;
+    isSilenced?: boolean;
   }>;
   wolfSeerResults?: Array<{
     wolfSeerId: string;

@@ -51,9 +51,13 @@ export declare class WerewolfComponents {
      */
     static buildGunnerMenu(game: WerewolfGame, gunnerPlayer: Player): ActionRowBuilder<StringSelectMenuBuilder>[];
     /**
-     * Menu Sói trắng chọn giết đồng loại (Đêm chẵn >= 2)
+     * Menu Sói trắng chọn cắn (Đêm chẵn >= 2): Có thể cắn Dân làng hoặc Sói khác (ngoại trừ bản thân)
      */
     static buildWhiteWolfMenu(game: WerewolfGame, whiteWolfId: string): ActionRowBuilder<StringSelectMenuBuilder>[];
+    /**
+     * Menu phế kỹ năng của Sói Cuồng Nộ (Berserk Wolf)
+     */
+    static buildBerserkDisableMenu(game: WerewolfGame, berserkId: string, availableDisables: number): ActionRowBuilder<StringSelectMenuBuilder>[];
     /**
      * Menu Thần tình yêu ghép đôi (Đêm 1)
      */

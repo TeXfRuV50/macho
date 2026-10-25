@@ -89,6 +89,8 @@ export class WerewolfGame {
         witchHealRemaining: 1,
         witchPoisonRemaining: 1,
         demonWolfInfectRemaining: 1,
+        demonWolfMode: 'INFECT',
+        berserkUsedDisables: 0,
         lastProtectedTargetId: null,
         doctorLastProtectedTargetId: null,
         gunnerBulletsRemaining: 2,
@@ -313,6 +315,8 @@ export class WerewolfGame {
         witchHealRemaining: assignedRoleId === 'WITCH' ? 1 : 0,
         witchPoisonRemaining: assignedRoleId === 'WITCH' ? 1 : 0,
         demonWolfInfectRemaining: assignedRoleId === 'DEMON_WOLF' ? 1 : 0,
+        demonWolfMode: assignedRoleId === 'DEMON_WOLF' ? 'INFECT' : undefined,
+        berserkUsedDisables: 0,
         lastProtectedTargetId: null,
         doctorLastProtectedTargetId: null,
         gunnerBulletsRemaining: assignedRoleId === 'GUNNER' ? 2 : 0,
@@ -683,6 +687,18 @@ export class WerewolfGame {
         if (player.faction !== 'WEREWOLF') {
           return { success: false, message: 'Bạn không thuộc Phe Sói.' };
         }
+        if (action.targetId) {
+          const target = this.players.get(action.targetId);
+          if (target && target.faction === 'WEREWOLF') {
+            return { success: false, message: 'Bầy Sói không thể bỏ phiếu cắn đồng đội của mình!' };
+          }
+        }
+        if (action.secondaryTargetId) {
+          const secTarget = this.players.get(action.secondaryTargetId);
+          if (secTarget && secTarget.faction === 'WEREWOLF') {
+            return { success: false, message: 'Bầy Sói không thể bỏ phiếu cắn đồng đội của mình!' };
+          }
+        }
         if (action.secondaryTargetId && !this.isAlphaWolfActive()) {
           return { success: false, message: 'Bầy sói không thể cắn 2 người khi không có Sói Trùm hoạt động hoặc đã có sói chết.' };
         }
@@ -691,13 +707,37 @@ export class WerewolfGame {
         }
       }
 
-      // 5. Sói quỷ chuyển hóa
+      // 5. Sói quỷ chuyển hóa hoặc cắn chết
       if (action.type === 'DEMON_WOLF_INFECT') {
         if (player.roleId !== 'DEMON_WOLF') {
           return { success: false, message: 'Bạn không phải là Sói quỷ.' };
         }
         if (player.skills.demonWolfInfectRemaining <= 0) {
           return { success: false, message: 'Bạn đã sử dụng hết lượt chuyển hóa của trận này.' };
+        }
+        player.skills.demonWolfMode = 'INFECT';
+      }
+
+      if (action.type === 'DEMON_WOLF_KILL_MODE') {
+        if (player.roleId !== 'DEMON_WOLF') {
+          return { success: false, message: 'Bạn không phải là Sói quỷ.' };
+        }
+        player.skills.demonWolfMode = 'KILL';
+      }
+
+      // Sói Cuồng Nộ phế kỹ năng
+      if (action.type === 'BERSERK_DISABLE') {
+        if (player.roleId !== 'BERSERK_WOLF') {
+          return { success: false, message: 'Bạn không phải là Sói cuồng nộ.' };
+        }
+        const deadWolvesCount = this.getDeadWolvesCount();
+        const usedDisables = player.skills.berserkUsedDisables || 0;
+        if (deadWolvesCount <= usedDisables) {
+          return { success: false, message: 'Bạn chưa có lượt phế kỹ năng nào khả dụng (cứ 1 sói chết = 1 lượt).' };
+        }
+        const target = this.players.get(action.targetId!);
+        if (!target || !target.isAlive || target.faction === 'WEREWOLF') {
+          return { success: false, message: 'Mục tiêu phải là người chơi còn sống và không thuộc Phe Sói.' };
         }
       }
 
@@ -776,8 +816,8 @@ export class WerewolfGame {
           return { success: false, message: 'Sói trắng chỉ thức dậy vào các đêm chẵn từ Đêm 2.' };
         }
         const target = this.players.get(action.targetId!);
-        if (!target || target.faction !== 'WEREWOLF' || target.id === player.id) {
-          return { success: false, message: 'Mục tiêu phải là một con sói khác trong bầy.' };
+        if (!target || !target.isAlive || target.id === player.id) {
+          return { success: false, message: 'Mục tiêu không hợp lệ hoặc đã chết.' };
         }
       }
     } else if (this.phase === 'DISCUSSION') {
@@ -841,9 +881,11 @@ export class WerewolfGame {
 
     // Xóa hành động cũ của người chơi trong pha này (nếu có) để ghi đè (cho phép đổi vote)
     const isDayVote = action.type === 'DAY_VOTE' || action.type === 'DAY_VOTE_SKIP';
+    const isDemonWolfModeAction = action.type === 'DEMON_WOLF_INFECT' || action.type === 'DEMON_WOLF_KILL_MODE';
     this.currentPhaseActions = this.currentPhaseActions.filter((a) => {
       if (a.userId !== action.userId) return true;
       if (isDayVote && (a.type === 'DAY_VOTE' || a.type === 'DAY_VOTE_SKIP')) return false;
+      if (isDemonWolfModeAction && (a.type === 'DEMON_WOLF_INFECT' || a.type === 'DEMON_WOLF_KILL_MODE')) return false;
       return a.type !== action.type;
     });
 
@@ -883,6 +925,29 @@ export class WerewolfGame {
   }
 
   /**
+   * Đếm tổng số con sói đã chết trong ván đấu.
+   */
+  public getDeadWolvesCount(): number {
+    let count = 0;
+    for (const player of this.players.values()) {
+      if (!player.isAlive) {
+        if (
+          player.faction === 'WEREWOLF' ||
+          player.originalRoleId === 'WEREWOLF' ||
+          player.originalRoleId === 'ALPHA_WOLF' ||
+          player.originalRoleId === 'DEMON_WOLF' ||
+          player.originalRoleId === 'BERSERK_WOLF' ||
+          player.originalRoleId === 'WOLF_SEER' ||
+          player.originalRoleId === 'WHITE_WOLF'
+        ) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  /**
    * Sói Trùm có đang kích hoạt khả năng cắn 2 người hay không:
    * Có ít nhất 1 Sói Trùm còn sống VÀ chưa có con sói nào chết.
    */
@@ -907,14 +972,14 @@ export class WerewolfGame {
 
       if (vote.targetId) {
         const target = this.players.get(vote.targetId);
-        if (target && target.isAlive) {
+        if (target && target.isAlive && target.faction !== 'WEREWOLF') {
           tally.set(vote.targetId, (tally.get(vote.targetId) || 0) + 1);
         }
       }
 
       if (vote.secondaryTargetId && this.isAlphaWolfActive()) {
         const target2 = this.players.get(vote.secondaryTargetId);
-        if (target2 && target2.isAlive && target2.id !== vote.targetId) {
+        if (target2 && target2.isAlive && target2.faction !== 'WEREWOLF' && target2.id !== vote.targetId) {
           tally.set(vote.secondaryTargetId, (tally.get(vote.secondaryTargetId) || 0) + 1);
         }
       }

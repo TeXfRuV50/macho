@@ -96,6 +96,10 @@ export declare class WerewolfGame {
      */
     hasAnyWolfDied(): boolean;
     /**
+     * Đếm tổng số con sói đã chết trong ván đấu.
+     */
+    getDeadWolvesCount(): number;
+    /**
      * Sói Trùm có đang kích hoạt khả năng cắn 2 người hay không:
      * Có ít nhất 1 Sói Trùm còn sống VÀ chưa có con sói nào chết.
      */

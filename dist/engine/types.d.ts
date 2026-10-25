@@ -2,11 +2,13 @@ import { z } from 'zod';
 export type GamePhase = 'LOBBY' | 'ROLE_DISTRIBUTION' | 'NIGHT' | 'DAWN' | 'DISCUSSION' | 'VOTING' | 'RESOLUTION' | 'FINISHED' | 'PAUSED' | 'CANCELLED';
 export type Faction = 'VILLAGE' | 'WEREWOLF' | 'SOLO' | 'LOVERS';
 export type RoleId = 'VILLAGER' | 'SEER' | 'BODYGUARD' | 'DOCTOR' | 'WITCH' | 'HUNTER' | 'GUNNER' | 'DETECTIVE' | 'IDIOT' | 'CUPID' | 'WEREWOLF' | 'ALPHA_WOLF' | 'DEMON_WOLF' | 'BERSERK_WOLF' | 'WOLF_SEER' | 'WHITE_WOLF' | 'FOOL' | 'TANNER' | 'SERIAL_KILLER' | string;
-export type ActionType = 'CONFIRM_ROLE' | 'CUPID_LINK' | 'BODYGUARD_PROTECT' | 'DOCTOR_PROTECT' | 'SEER_INVESTIGATE' | 'DETECTIVE_INVESTIGATE' | 'WOLF_SEER_INVESTIGATE' | 'SERIAL_KILLER_KILL' | 'GUNNER_SHOOT' | 'WOLF_VOTE' | 'DEMON_WOLF_INFECT' | 'WITCH_HEAL' | 'WITCH_POISON' | 'WITCH_PASS' | 'WHITE_WOLF_KILL' | 'HUNTER_SHOT' | 'DAY_VOTE' | 'DAY_VOTE_SKIP';
+export type ActionType = 'CONFIRM_ROLE' | 'CUPID_LINK' | 'BODYGUARD_PROTECT' | 'DOCTOR_PROTECT' | 'SEER_INVESTIGATE' | 'DETECTIVE_INVESTIGATE' | 'WOLF_SEER_INVESTIGATE' | 'SERIAL_KILLER_KILL' | 'GUNNER_SHOOT' | 'WOLF_VOTE' | 'DEMON_WOLF_INFECT' | 'DEMON_WOLF_KILL_MODE' | 'BERSERK_DISABLE' | 'WITCH_HEAL' | 'WITCH_POISON' | 'WITCH_PASS' | 'WHITE_WOLF_KILL' | 'HUNTER_SHOT' | 'DAY_VOTE' | 'DAY_VOTE_SKIP';
 export interface PlayerSkills {
     witchHealRemaining: number;
     witchPoisonRemaining: number;
     demonWolfInfectRemaining: number;
+    demonWolfMode?: 'INFECT' | 'KILL';
+    berserkUsedDisables?: number;
     lastProtectedTargetId: string | null;
     doctorLastProtectedTargetId?: string | null;
     gunnerBulletsRemaining?: number;
@@ -78,7 +80,7 @@ export declare const CustomRoleSchema: z.ZodObject<{
     description: string;
     id: string;
     faction: "VILLAGE" | "WEREWOLF" | "SOLO" | "LOVERS";
-    skillType: "INVESTIGATE" | "PROTECT" | "KILL" | "HEAL" | "POISON" | "INFECT" | "NONE";
+    skillType: "INFECT" | "KILL" | "INVESTIGATE" | "PROTECT" | "HEAL" | "POISON" | "NONE";
     skillUsesPerGame: number;
     activeNights: "ALL" | "EVEN" | "ODD" | "FIRST_ONLY";
     targetCondition: "ANY_ALIVE" | "OTHER_ALIVE" | "WOLF_ALIVE" | "NON_WOLF_ALIVE";
@@ -88,7 +90,7 @@ export declare const CustomRoleSchema: z.ZodObject<{
     description: string;
     id: string;
     faction: "VILLAGE" | "WEREWOLF" | "SOLO" | "LOVERS";
-    skillType: "INVESTIGATE" | "PROTECT" | "KILL" | "HEAL" | "POISON" | "INFECT" | "NONE";
+    skillType: "INFECT" | "KILL" | "INVESTIGATE" | "PROTECT" | "HEAL" | "POISON" | "NONE";
     skillUsesPerGame: number;
     activeNights: "ALL" | "EVEN" | "ODD" | "FIRST_ONLY";
     targetCondition: "ANY_ALIVE" | "OTHER_ALIVE" | "WOLF_ALIVE" | "NON_WOLF_ALIVE";
@@ -118,6 +120,7 @@ export interface NightResolutionResult {
     wasInfected: boolean;
     newWerewolfId: string | null;
     berserkTriggeredNextNight: boolean;
+    silencedUserId?: string | null;
     hunterTriggeredId: string | null;
     serialKillerVictimId: string | null;
     wasSerialKillerImmune?: boolean;
@@ -125,12 +128,14 @@ export interface NightResolutionResult {
         seerId: string;
         targetId: string;
         isWolf: boolean;
+        isSilenced?: boolean;
     }>;
     detectiveResults?: Array<{
         detectiveId: string;
         target1Id: string;
         target2Id: string;
         isSameTeam: boolean;
+        isSilenced?: boolean;
     }>;
     wolfSeerResults?: Array<{
         wolfSeerId: string;
