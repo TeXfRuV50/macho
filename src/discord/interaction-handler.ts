@@ -141,6 +141,10 @@ export class InteractionHandler {
 
     const currentSession = this.activeSessions.get(channelId);
 
+    // Tránh hoàn toàn lỗi "Ứng dụng không phản hồi" (>3s): Tự động ACK trước trong vòng <50ms
+    const isPublicCommand = commandName === 'pause' || commandName === 'resume' || (commandName === 'start' && !currentSession);
+    await this.safeDeferReply(interaction, !isPublicCommand);
+
     // 1. /help
     if (commandName === 'help') {
       await this.safeReply(interaction, { embeds: [WerewolfEmbeds.buildHelpEmbed()], flags: 64 });
@@ -175,9 +179,8 @@ export class InteractionHandler {
           return;
         }
 
-        await interaction.deferReply({ flags: 64 });
         const res = await currentSession.start();
-        await interaction.editReply({ content: res.message });
+        await this.safeReply(interaction, { content: res.message, flags: 64 });
         return;
       }
 
@@ -188,9 +191,6 @@ export class InteractionHandler {
         });
         return;
       }
-
-      // Defer reply ngay lập tức để Discord không bao giờ báo "Ứng dụng không phản hồi"
-      await interaction.deferReply();
 
       const gameId = `ww-${Date.now().toString(36)}`;
       const game = new WerewolfGame(gameId, guildId, channelId, user.id);
@@ -769,12 +769,6 @@ export class InteractionHandler {
           content: `Cần tối thiểu 4 người chơi để bắt đầu trận Ma Sói. Hiện tại đang có ${session.game.players.size} người.`,
           ephemeral: true,
         });
-        return;
-      }
-      try {
-        await interaction.deferReply({ ephemeral: true });
-      } catch (err: any) {
-        if (err?.code !== 10062) throw err;
         return;
       }
       const res = await session.start();
