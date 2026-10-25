@@ -13,6 +13,10 @@ export declare class InteractionHandler {
     removeSession(channelId: string): void;
     getActiveSessionsCount(): number;
     /**
+     * Phản hồi ngầm (deferReply) nhanh chóng trong <50ms để ngăn lỗi "không phản hồi kịp thời" (>3s)
+     */
+    safeDeferReply(interaction: any, ephemeral?: boolean): Promise<void>;
+    /**
      * Trả lời tương tác an toàn, tránh lỗi 10062 (Unknown interaction) và không làm sập bot
      */
     safeReply(interaction: any, options: any): Promise<void>;

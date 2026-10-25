@@ -21,6 +21,7 @@ export class GameSession {
 
   public mainMessageId: string | null = null;
   private timerHandle: NodeJS.Timeout | null = null;
+  private watchdogHandle: NodeJS.Timeout | null = null;
   private botChatTimers: NodeJS.Timeout[] = [];
   private isProcessingPhaseTransition: boolean = false;
 
@@ -29,6 +30,7 @@ export class GameSession {
     this.db = db;
     this.dmManager = dmManager;
     this.client = client;
+    this.startWatchdog();
   }
 
   public async getChannel(): Promise<TextChannel | null> {
@@ -288,7 +290,8 @@ export class GameSession {
       return { success: true, message: 'Tất cả người chơi đã sẵn sàng, bắt đầu ngay Đêm 1!' };
     }
 
-    this.schedulePhaseTimer(this.game.config.timers.roleConfirmSec * 1000, () => {
+    const remainingMs = Math.max(1000, this.game.phaseDeadline - Date.now());
+    this.schedulePhaseTimer(remainingMs, () => {
       this.advanceToNight();
     });
 
@@ -344,7 +347,8 @@ export class GameSession {
       WerewolfBotAi.performNightActions(this.game);
       this.db.saveGame(this.game);
 
-      this.schedulePhaseTimer(this.game.config.timers.nightSec * 1000, () => {
+      const remainingMs = Math.max(1000, this.game.phaseDeadline - Date.now());
+      this.schedulePhaseTimer(remainingMs, () => {
         this.advanceToDawn();
       });
     } finally {
@@ -765,7 +769,8 @@ export class GameSession {
         return;
       }
 
-      this.schedulePhaseTimer(this.game.config.timers.dawnSec * 1000, () => {
+      const remainingMs = Math.max(1000, this.game.phaseDeadline - Date.now());
+      this.schedulePhaseTimer(remainingMs, () => {
         this.advanceToDiscussion();
       });
     } finally {
@@ -839,7 +844,8 @@ export class GameSession {
         }
       }
 
-      this.schedulePhaseTimer(this.game.config.timers.discussionSec * 1000, () => {
+      const remainingMs = Math.max(1000, this.game.phaseDeadline - Date.now());
+      this.schedulePhaseTimer(remainingMs, () => {
         this.advanceToVoting();
       });
     } finally {
@@ -898,13 +904,14 @@ export class GameSession {
       const votedUserIds = new Set(votes.map((v) => v.userId));
 
       if (votedUserIds.size >= aliveVoters.length) {
-        this.schedulePhaseTimer(2000, () => {
+        this.schedulePhaseTimer(1500, () => {
           this.advanceToResolution();
         });
         return;
       }
 
-      this.schedulePhaseTimer(this.game.config.timers.votingSec * 1000, () => {
+      const remainingMs = Math.max(1000, this.game.phaseDeadline - Date.now());
+      this.schedulePhaseTimer(remainingMs, () => {
         this.advanceToResolution();
       });
     } finally {
@@ -975,6 +982,7 @@ export class GameSession {
    * Kết thúc ván đấu
    */
   public async finishGame(winResult: GameWinResult): Promise<void> {
+    this.stopWatchdog();
     this.clearPhaseTimer();
     this.clearBotChatTimers();
     this.game.phase = 'FINISHED';
@@ -997,6 +1005,7 @@ export class GameSession {
    * Hủy ván đấu
    */
   public async cancelGame(reason: string = 'Đã hủy trận'): Promise<void> {
+    this.stopWatchdog();
     this.clearPhaseTimer();
     this.clearBotChatTimers();
     this.game.cancel(reason);
@@ -1124,6 +1133,50 @@ export class GameSession {
     if (this.timerHandle) {
       clearTimeout(this.timerHandle);
       this.timerHandle = null;
+    }
+  }
+
+  /**
+   * Watchdog định kỳ mỗi 1.5 giây kiểm tra hạn chót, đảm bảo game không bao giờ bị kẹt
+   */
+  public startWatchdog(): void {
+    if (this.watchdogHandle) return;
+    this.watchdogHandle = setInterval(async () => {
+      if (
+        this.game.phase === 'LOBBY' ||
+        this.game.phase === 'FINISHED' ||
+        this.game.phase === 'CANCELLED' ||
+        this.game.phase === 'PAUSED'
+      ) {
+        return;
+      }
+      if (this.isProcessingPhaseTransition) return;
+
+      const now = Date.now();
+      if (this.game.phaseDeadline > 0 && now >= this.game.phaseDeadline) {
+        try {
+          if (this.game.phase === 'ROLE_DISTRIBUTION') {
+            await this.advanceToNight();
+          } else if (this.game.phase === 'NIGHT') {
+            await this.advanceToDawn();
+          } else if (this.game.phase === 'DAWN') {
+            await this.advanceToDiscussion();
+          } else if (this.game.phase === 'DISCUSSION') {
+            await this.advanceToVoting();
+          } else if (this.game.phase === 'VOTING') {
+            await this.advanceToResolution();
+          }
+        } catch (err: any) {
+          console.error(`[Watchdog Error] Lỗi tự động chuyển pha khi hết hạn ván ${this.game.id}:`, err?.message);
+        }
+      }
+    }, 1500);
+  }
+
+  public stopWatchdog(): void {
+    if (this.watchdogHandle) {
+      clearInterval(this.watchdogHandle);
+      this.watchdogHandle = null;
     }
   }
 

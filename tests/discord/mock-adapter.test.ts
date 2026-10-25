@@ -1206,6 +1206,118 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
       expect(optionValues).not.toContain('w2');
       expect(optionValues).not.toContain('ww');
     });
+
+    it('Watchdog tự động chuyển từ VOTING sang RESOLUTION khi quá hạn chót mà không bị treo', async () => {
+      const db = new DatabaseManager(':memory:');
+      const dmManager = new DmManager();
+      const game = new WerewolfGame('game-watchdog-test', 'guild-1', 'ch-wd', 'host-1');
+      game.addPlayer('p1', 'Người Chơi 1');
+      game.addPlayer('p2', 'Người Chơi 2');
+      game.addPlayer('p3', 'Người Chơi 3');
+      game.addPlayer('p4', 'Người Chơi 4');
+      game.players.get('p1')!.roleId = 'WEREWOLF';
+      game.players.get('p1')!.faction = 'WEREWOLF';
+      game.players.get('p2')!.roleId = 'VILLAGER';
+      game.players.get('p2')!.faction = 'VILLAGE';
+      game.players.get('p3')!.roleId = 'VILLAGER';
+      game.players.get('p3')!.faction = 'VILLAGE';
+      game.players.get('p4')!.roleId = 'SEER';
+      game.players.get('p4')!.faction = 'VILLAGE';
+      game.phase = 'VOTING';
+      // Đặt hạn chót đã trôi qua
+      game.phaseDeadline = Date.now() - 5000;
+
+      const mockChannel = {
+        isTextBased: () => true,
+        isDMBased: () => false,
+        send: vi.fn(async () => ({ id: 'new-msg', edit: vi.fn() })),
+        messages: {
+          fetch: vi.fn(async () => ({ edit: vi.fn(), delete: vi.fn() })),
+        },
+        permissionOverwrites: {
+          edit: vi.fn(async () => {}),
+        },
+      };
+
+      const mockClient = {
+        channels: { fetch: vi.fn(async () => mockChannel) },
+        guilds: { fetch: vi.fn(async () => ({ roles: { everyone: { id: 'everyone' } } })) },
+      } as any;
+
+      const session = new GameSession(game, db, dmManager, mockClient);
+
+      // Kích hoạt checkExpiredDeadline
+      await session.checkExpiredDeadline();
+
+      expect(game.phase).toBe('RESOLUTION');
+      session.stopWatchdog();
+      db.close();
+    });
+
+    it('Tương tác bỏ phiếu skip_vote được deferReply tự động để không bị timeout quá 3 giây', async () => {
+      const db = new DatabaseManager(':memory:');
+      const dmManager = new DmManager();
+      const handler = new InteractionHandler(db, dmManager);
+
+      const game = new WerewolfGame('game-defer-vote', 'guild-1', 'ch-defer', 'host-1');
+      game.addPlayer('u1', 'User 1');
+      game.addPlayer('u2', 'User 2');
+      game.addPlayer('u3', 'User 3');
+      game.addPlayer('u4', 'User 4');
+      game.players.get('u1')!.roleId = 'VILLAGER';
+      game.players.get('u2')!.roleId = 'VILLAGER';
+      game.players.get('u3')!.roleId = 'VILLAGER';
+      game.players.get('u4')!.roleId = 'WEREWOLF';
+      game.phase = 'VOTING';
+
+      const mockChannel = {
+        isTextBased: () => true,
+        isDMBased: () => false,
+        send: vi.fn(async () => ({ id: 'msg-defer', edit: vi.fn() })),
+        messages: { fetch: vi.fn(async () => ({ edit: vi.fn() })) },
+      };
+
+      const mockClient = {
+        channels: { fetch: vi.fn(async () => mockChannel) },
+      } as any;
+
+      const session = new GameSession(game, db, dmManager, mockClient);
+      handler.registerSession(session);
+
+      let wasDeferred = false;
+      let replyContent = '';
+
+      const mockButton = {
+        customId: `ww:game-defer-vote:VOTING:skip_vote:all`,
+        user: { id: 'u1', username: 'User 1' },
+        member: { displayName: 'User 1' },
+        isButton: () => true,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => false,
+        isModalSubmit: () => false,
+        isRepliable: () => true,
+        deferred: false,
+        replied: false,
+        deferReply: vi.fn(async () => {
+          wasDeferred = true;
+          mockButton.deferred = true;
+        }),
+        editReply: vi.fn(async (opts: any) => {
+          replyContent = opts.content;
+        }),
+        reply: vi.fn(async (opts: any) => {
+          replyContent = opts.content;
+        }),
+      } as any;
+
+      await handler.handleInteraction(mockButton);
+
+      expect(wasDeferred).toBe(true);
+      expect(replyContent).toContain('Bạn đã chọn bỏ phiếu trắng');
+
+      session.stopWatchdog();
+      db.close();
+    });
   });
 });
 

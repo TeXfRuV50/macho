@@ -50,16 +50,36 @@ export class InteractionHandler {
   }
 
   /**
+   * Phản hồi ngầm (deferReply) nhanh chóng trong <50ms để ngăn lỗi "không phản hồi kịp thời" (>3s)
+   */
+  public async safeDeferReply(interaction: any, ephemeral: boolean = true): Promise<void> {
+    try {
+      if (!interaction || typeof interaction.deferReply !== 'function') return;
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: ephemeral ? 64 : undefined });
+      }
+    } catch (err: any) {
+      if (err?.code === 10062 || err?.code === 40060) return;
+      console.warn('[SafeDeferReply Warning]:', err?.message || err);
+    }
+  }
+
+  /**
    * Trả lời tương tác an toàn, tránh lỗi 10062 (Unknown interaction) và không làm sập bot
    */
   public async safeReply(interaction: any, options: any): Promise<void> {
     try {
-      if (!interaction || typeof interaction.reply !== 'function') return;
+      if (!interaction) return;
+      if (typeof options === 'object' && options !== null) {
+        if (options.ephemeral && !options.flags) {
+          options.flags = 64;
+        }
+      }
       if (interaction.deferred) {
         await interaction.editReply(options);
-      } else if (!interaction.replied) {
+      } else if (!interaction.replied && typeof interaction.reply === 'function') {
         await interaction.reply(options);
-      } else {
+      } else if (typeof interaction.followUp === 'function') {
         await interaction.followUp(options);
       }
     } catch (err: any) {
@@ -213,13 +233,13 @@ export class InteractionHandler {
     // 4. /role (Xem vai bí mật của bản thân)
     if (commandName === 'role') {
       if (!currentSession || currentSession.game.phase === 'LOBBY') {
-        await interaction.reply({ content: 'Ván đấu chưa bắt đầu hoặc chưa chia vai!', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Ván đấu chưa bắt đầu hoặc chưa chia vai!', ephemeral: true });
         return;
       }
 
       const player = currentSession.game.players.get(user.id);
       if (!player) {
-        await interaction.reply({ content: 'Bạn không tham gia ván đấu này.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Bạn không tham gia ván đấu này.', ephemeral: true });
         return;
       }
 
@@ -227,32 +247,32 @@ export class InteractionHandler {
       const partner = player.loverId ? currentSession.game.players.get(player.loverId) : undefined;
       const roleEmbed = WerewolfEmbeds.buildPrivateRoleEmbed(player, roleInfo, partner);
 
-      await interaction.reply({ embeds: [roleEmbed], ephemeral: true });
+      await this.safeReply(interaction, { embeds: [roleEmbed], ephemeral: true });
       return;
     }
 
     // 4b. /action hoặc /skill (Thực hiện kỹ năng bí mật)
     if (commandName === 'action' || commandName === 'skill') {
       if (!currentSession || currentSession.game.phase === 'LOBBY' || currentSession.game.phase === 'FINISHED') {
-        await interaction.reply({ content: 'Hiện không trong giai đoạn có thể sử dụng kỹ năng.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Hiện không trong giai đoạn có thể sử dụng kỹ năng.', ephemeral: true });
         return;
       }
 
       const player = currentSession.game.players.get(user.id);
       if (!player) {
-        await interaction.reply({ content: 'Bạn không tham gia ván đấu này.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Bạn không tham gia ván đấu này.', ephemeral: true });
         return;
       }
 
       if (currentSession.game.phase === 'NIGHT') {
         const skillResp = WerewolfComponents.buildPlayerNightSkillResponse(currentSession.game, player);
-        await interaction.reply({ ...skillResp, ephemeral: true });
+        await this.safeReply(interaction, { ...skillResp, ephemeral: true });
         return;
       }
 
       if (currentSession.game.phase === 'DISCUSSION' && player.roleId === 'GUNNER' && (player.skills.gunnerBulletsRemaining ?? 0) > 0) {
         const gunnerMenus = WerewolfComponents.buildGunnerMenu(currentSession.game, player);
-        await interaction.reply({
+        await this.safeReply(interaction, {
           content: `🔫 **[XẠ THỦ]** Bạn còn **${player.skills.gunnerBulletsRemaining}** viên đạn bạc. Hãy chọn người để bắn hạ:`,
           components: gunnerMenus,
           ephemeral: true,
@@ -263,7 +283,7 @@ export class InteractionHandler {
       const roleInfo = getRoleInfo(player.roleId, currentSession.game.customRoles);
       const partner = player.loverId ? currentSession.game.players.get(player.loverId) : undefined;
       const roleEmbed = WerewolfEmbeds.buildPrivateRoleEmbed(player, roleInfo, partner);
-      await interaction.reply({
+      await this.safeReply(interaction, {
         content: 'Hiện không phải thời điểm dùng kỹ năng riêng. Dưới đây là thông tin vai trò của bạn:',
         embeds: [roleEmbed],
         ephemeral: true,
@@ -274,21 +294,21 @@ export class InteractionHandler {
     // 5. /status
     if (commandName === 'status') {
       if (!currentSession) {
-        await interaction.reply({ content: 'Hiện không có ván đấu nào trong kênh này.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Hiện không có ván đấu nào trong kênh này.', ephemeral: true });
         return;
       }
-      await interaction.reply({ embeds: [WerewolfEmbeds.buildStatusEmbed(currentSession.game)], ephemeral: true });
+      await this.safeReply(interaction, { embeds: [WerewolfEmbeds.buildStatusEmbed(currentSession.game)], ephemeral: true });
       return;
     }
 
     // 5b. /vote (Kéo bảng biểu quyết treo cổ xuống cuối kênh)
     if (commandName === 'vote') {
       if (!currentSession) {
-        await interaction.reply({ content: 'Hiện không có ván đấu nào trong kênh này.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Hiện không có ván đấu nào trong kênh này.', ephemeral: true });
         return;
       }
       if (currentSession.game.phase !== 'VOTING') {
-        await interaction.reply({
+        await this.safeReply(interaction, {
           content: `Hiện không phải thời gian biểu quyết treo cổ (Pha hiện tại: **${currentSession.game.phase}**).`,
           ephemeral: true,
         });
@@ -296,24 +316,24 @@ export class InteractionHandler {
       }
 
       await currentSession.repostVotingMessage();
-      await interaction.reply({ content: '✅ Đã kéo bảng biểu quyết treo cổ xuống cuối kênh!', ephemeral: true });
+      await this.safeReply(interaction, { content: '✅ Đã kéo bảng biểu quyết treo cổ xuống cuối kênh!', ephemeral: true });
       return;
     }
 
     // 6. /add
     if (commandName === 'add') {
       if (!currentSession || currentSession.game.phase !== 'LOBBY') {
-        await interaction.reply({ content: 'Chỉ có thể thêm người chơi khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ có thể thêm người chơi khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền thêm người chơi.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền thêm người chơi.', ephemeral: true });
         return;
       }
 
       const targetUser = interaction.options.getUser('user', true);
       if (targetUser.bot) {
-        await interaction.reply({
+        await this.safeReply(interaction, {
           content: 'Không thể thêm tài khoản bot Discord vào ván chơi. Để thêm bot ảo AI chơi cùng, bạn hãy dùng lệnh `/addbot`, `/fillbots` hoặc bấm nút **"+1 Bot"** / **"Điền đủ Bot"** trên bảng sảnh chờ!',
           ephemeral: true,
         });
@@ -322,7 +342,7 @@ export class InteractionHandler {
 
       const res = currentSession.game.addPlayer(targetUser.id, targetUser.displayName || targetUser.username);
       if (!res.success) {
-        await interaction.reply({ content: res.message, ephemeral: true });
+        await this.safeReply(interaction, { content: res.message, ephemeral: true });
         return;
       }
 
@@ -331,18 +351,18 @@ export class InteractionHandler {
         embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
         components: WerewolfComponents.buildLobbyControls(currentSession.game),
       });
-      await interaction.reply({ content: `✅ Đã thêm <@${targetUser.id}> vào sảnh chờ!`, ephemeral: true });
+      await this.safeReply(interaction, { content: `✅ Đã thêm <@${targetUser.id}> vào sảnh chờ!`, ephemeral: true });
       return;
     }
 
     // 6b. /addbot
     if (commandName === 'addbot') {
       if (!currentSession || currentSession.game.phase !== 'LOBBY') {
-        await interaction.reply({ content: 'Chỉ có thể thêm bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ có thể thêm bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền thêm bot.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền thêm bot.', ephemeral: true });
         return;
       }
 
@@ -358,7 +378,7 @@ export class InteractionHandler {
       }
 
       if (added === 0) {
-        await interaction.reply({ content: '❌ Không thể thêm bot (sảnh chờ đã đầy tối đa 25 người).', ephemeral: true });
+        await this.safeReply(interaction, { content: '❌ Không thể thêm bot (sảnh chờ đã đầy tối đa 25 người).', ephemeral: true });
         return;
       }
 
@@ -367,7 +387,7 @@ export class InteractionHandler {
         embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
         components: WerewolfComponents.buildLobbyControls(currentSession.game),
       });
-      await interaction.reply({
+      await this.safeReply(interaction, {
         content: `🤖 Đã thêm **${added}** bot vào sảnh chờ! Tổng số người chơi hiện tại: **${currentSession.game.players.size}**.`,
         ephemeral: true,
       });
@@ -377,11 +397,11 @@ export class InteractionHandler {
     // 6c. /fillbots
     if (commandName === 'fillbots') {
       if (!currentSession || currentSession.game.phase !== 'LOBBY') {
-        await interaction.reply({ content: 'Chỉ có thể điền bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ có thể điền bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền điền bot.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền điền bot.', ephemeral: true });
         return;
       }
 
@@ -393,18 +413,18 @@ export class InteractionHandler {
         embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
         components: WerewolfComponents.buildLobbyControls(currentSession.game),
       });
-      await interaction.reply({ content: `⚡ ${res.message}`, ephemeral: true });
+      await this.safeReply(interaction, { content: `⚡ ${res.message}`, ephemeral: true });
       return;
     }
 
     // 6d. /clearbots
     if (commandName === 'clearbots') {
       if (!currentSession || currentSession.game.phase !== 'LOBBY') {
-        await interaction.reply({ content: 'Chỉ có thể xóa bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ có thể xóa bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền xóa bot.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền xóa bot.', ephemeral: true });
         return;
       }
 
@@ -414,18 +434,18 @@ export class InteractionHandler {
         embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
         components: WerewolfComponents.buildLobbyControls(currentSession.game),
       });
-      await interaction.reply({ content: `🧹 ${res.message}`, ephemeral: true });
+      await this.safeReply(interaction, { content: `🧹 ${res.message}`, ephemeral: true });
       return;
     }
 
     // 6e. /bot [add|fill|remove|clear]
     if (commandName === 'bot') {
       if (!currentSession || currentSession.game.phase !== 'LOBBY') {
-        await interaction.reply({ content: 'Chỉ có thể quản lý bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ có thể quản lý bot khi đang ở Sảnh chờ (Lobby).', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền điều chỉnh bot.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền điều chỉnh bot.', ephemeral: true });
         return;
       }
 
@@ -443,7 +463,7 @@ export class InteractionHandler {
           embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
           components: WerewolfComponents.buildLobbyControls(currentSession.game),
         });
-        await interaction.reply({ content: `🤖 Đã thêm **${added}** bot vào sảnh chờ!`, ephemeral: true });
+        await this.safeReply(interaction, { content: `🤖 Đã thêm **${added}** bot vào sảnh chờ!`, ephemeral: true });
       } else if (sub === 'fill') {
         const target = interaction.options.getInteger('target') || undefined;
         const res = currentSession.game.fillBots(target);
@@ -452,7 +472,7 @@ export class InteractionHandler {
           embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
           components: WerewolfComponents.buildLobbyControls(currentSession.game),
         });
-        await interaction.reply({ content: `⚡ ${res.message}`, ephemeral: true });
+        await this.safeReply(interaction, { content: `⚡ ${res.message}`, ephemeral: true });
       } else if (sub === 'remove') {
         const res = currentSession.game.removeBotPlayer();
         this.db.saveGame(currentSession.game);
@@ -460,7 +480,7 @@ export class InteractionHandler {
           embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
           components: WerewolfComponents.buildLobbyControls(currentSession.game),
         });
-        await interaction.reply({ content: res.success ? `🗑️ ${res.message}` : `❌ ${res.message}`, ephemeral: true });
+        await this.safeReply(interaction, { content: res.success ? `🗑️ ${res.message}` : `❌ ${res.message}`, ephemeral: true });
       } else if (sub === 'clear') {
         const res = currentSession.game.clearBots();
         this.db.saveGame(currentSession.game);
@@ -468,7 +488,7 @@ export class InteractionHandler {
           embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
           components: WerewolfComponents.buildLobbyControls(currentSession.game),
         });
-        await interaction.reply({ content: `🧹 ${res.message}`, ephemeral: true });
+        await this.safeReply(interaction, { content: `🧹 ${res.message}`, ephemeral: true });
       }
       return;
     }
@@ -476,18 +496,18 @@ export class InteractionHandler {
     // 7. /remove
     if (commandName === 'remove') {
       if (!currentSession || currentSession.game.phase !== 'LOBBY') {
-        await interaction.reply({ content: 'Chỉ có thể xóa người chơi khi đang ở Sảnh chờ.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ có thể xóa người chơi khi đang ở Sảnh chờ.', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền xóa người chơi.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền xóa người chơi.', ephemeral: true });
         return;
       }
 
       const targetUser = interaction.options.getUser('user', true);
       const res = currentSession.game.removePlayer(targetUser.id);
       if (!res.success) {
-        await interaction.reply({ content: res.message, ephemeral: true });
+        await this.safeReply(interaction, { content: res.message, ephemeral: true });
         return;
       }
 
@@ -495,36 +515,36 @@ export class InteractionHandler {
       await currentSession.updateMainMessage({
         embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
       });
-      await interaction.reply({ content: `✅ Đã xóa <@${targetUser.id}> khỏi sảnh chờ.`, ephemeral: true });
+      await this.safeReply(interaction, { content: `✅ Đã xóa <@${targetUser.id}> khỏi sảnh chờ.`, ephemeral: true });
       return;
     }
 
     // 8. /custom
     if (commandName === 'custom') {
       if (!currentSession) {
-        await interaction.reply({ content: 'Không có ván đấu nào trong kênh này.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Không có ván đấu nào trong kênh này.', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền điều chỉnh cấu hình.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền điều chỉnh cấu hình.', ephemeral: true });
         return;
       }
 
       const embed = ConfigUi.buildRoleTableEmbed(currentSession.game.config, currentSession.game.customRoles, currentSession.game.players.size, 0);
       const controls = ConfigUi.buildRoleTableControls(currentSession.game.id, currentSession.game.hostId, currentSession.game.config, currentSession.game.customRoles, 0);
 
-      await interaction.reply({ embeds: [embed], components: controls, ephemeral: true });
+      await this.safeReply(interaction, { embeds: [embed], components: controls, ephemeral: true });
       return;
     }
 
     // 8b. /addallroles
     if (commandName === 'addallroles') {
       if (!currentSession) {
-        await interaction.reply({ content: 'Không có ván đấu nào trong kênh này.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Không có ván đấu nào trong kênh này.', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có quyền điều chỉnh vai trò.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có quyền điều chỉnh vai trò.', ephemeral: true });
         return;
       }
 
@@ -546,7 +566,7 @@ export class InteractionHandler {
         });
       }
 
-      await interaction.reply({
+      await this.safeReply(interaction, {
         content: '⚡ **Đã thêm tất cả các vai trò vào ván đấu!** (Mỗi vai 1 vị trí)',
         ephemeral: true,
       });
@@ -556,7 +576,7 @@ export class InteractionHandler {
     // 9. /pause, /resume, /stop
     if (commandName === 'pause' || commandName === 'resume' || commandName === 'stop') {
       if (!currentSession) {
-        await interaction.reply({ content: 'Không có ván đấu nào đang hoạt động.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Không có ván đấu nào đang hoạt động.', ephemeral: true });
         return;
       }
 
@@ -564,7 +584,7 @@ export class InteractionHandler {
       const isAdmin = (interaction.member as GuildMember)?.permissions.has('ManageChannels') || false;
 
       if (!isHost && !isAdmin) {
-        await interaction.reply({ content: 'Bạn phải là Chủ phòng hoặc Quản trị viên để thực hiện lệnh này.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Bạn phải là Chủ phòng hoặc Quản trị viên để thực hiện lệnh này.', ephemeral: true });
         return;
       }
 
@@ -572,15 +592,15 @@ export class InteractionHandler {
         const res = currentSession.game.pause();
         this.db.saveGame(currentSession.game);
         currentSession.clearPhaseTimer();
-        await interaction.reply({ content: `⏸️ ${res.message}` });
+        await this.safeReply(interaction, { content: `⏸️ ${res.message}` });
       } else if (commandName === 'resume') {
         const res = currentSession.game.resume();
         this.db.saveGame(currentSession.game);
-        await interaction.reply({ content: `▶️ ${res.message}` });
+        await this.safeReply(interaction, { content: `▶️ ${res.message}` });
         await currentSession.advanceToNight();
       } else if (commandName === 'stop') {
         const confirmRow = WerewolfComponents.buildStopConfirmation(currentSession.game.id, currentSession.game.hostId);
-        await interaction.reply({
+        await this.safeReply(interaction, {
           content: '⚠️ Bạn có chắc chắn muốn DỪNG và HỦY BỎ ván đấu này không?',
           components: [confirmRow],
           ephemeral: true,
@@ -599,23 +619,23 @@ export class InteractionHandler {
         if (guildPresets.length > 0) {
           listText += '\n\n**Bộ cấu hình của máy chủ:**\n' + guildPresets.map((p) => `• \`${p.name}\`: ${p.description}`).join('\n');
         }
-        await interaction.reply({ content: listText, ephemeral: true });
+        await this.safeReply(interaction, { content: listText, ephemeral: true });
         return;
       }
 
       if (!currentSession) {
-        await interaction.reply({ content: 'Cần có sảnh chờ trong kênh để thực hiện thao tác preset.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Cần có sảnh chờ trong kênh để thực hiện thao tác preset.', ephemeral: true });
         return;
       }
       if (currentSession.game.hostId !== user.id) {
-        await interaction.reply({ content: 'Chỉ chủ phòng mới có thể lưu/tải preset.', ephemeral: true });
+        await this.safeReply(interaction, { content: 'Chỉ chủ phòng mới có thể lưu/tải preset.', ephemeral: true });
         return;
       }
 
       if (sub === 'save') {
         const totalRoles = Object.values(currentSession.game.config.roles).reduce((a, b) => a + b, 0);
         if (totalRoles < 4) {
-          await interaction.reply({
+          await this.safeReply(interaction, {
             content: `Cần tối thiểu 4 người chơi để lưu cấu hình Ma Sói. Cấu hình hiện tại chỉ có ${totalRoles} vai.`,
             ephemeral: true,
           });
@@ -624,7 +644,7 @@ export class InteractionHandler {
         const name = interaction.options.getString('name', true);
         const desc = interaction.options.getString('description') || 'Preset tùy chỉnh';
         this.db.savePreset(guildId, name, desc, currentSession.game.config, user.id);
-        await interaction.reply({ content: `💾 Đã lưu preset **${name}** thành công cho máy chủ!`, ephemeral: true });
+        await this.safeReply(interaction, { content: `💾 Đã lưu preset **${name}** thành công cho máy chủ!`, ephemeral: true });
       } else if (sub === 'load') {
         const name = interaction.options.getString('name', true).toLowerCase();
         let loadedConfig = BUILTIN_PRESETS[name]?.config;
@@ -634,7 +654,7 @@ export class InteractionHandler {
         }
 
         if (!loadedConfig) {
-          await interaction.reply({ content: `❌ Không tìm thấy preset nào có tên \`${name}\`.`, ephemeral: true });
+          await this.safeReply(interaction, { content: `❌ Không tìm thấy preset nào có tên \`${name}\`.`, ephemeral: true });
           return;
         }
 
@@ -643,7 +663,7 @@ export class InteractionHandler {
         await currentSession.updateMainMessage({
           embeds: [WerewolfEmbeds.buildLobbyEmbed(currentSession.game)],
         });
-        await interaction.reply({ content: `✅ Đã áp dụng preset **${name}** cho sảnh chờ!`, ephemeral: true });
+        await this.safeReply(interaction, { content: `✅ Đã áp dụng preset **${name}** cho sảnh chờ!`, ephemeral: true });
       }
       return;
     }
@@ -680,6 +700,11 @@ export class InteractionHandler {
     if (phase !== 'CONFIG' && phase !== session.game.phase && action !== 'confirm_stop' && action !== 'cancel_stop') {
       await this.safeReply(interaction, { content: 'Thao tác đã quá hạn hoặc không thuộc pha hiện tại.', ephemeral: true });
       return;
+    }
+
+    // Tránh lỗi timeout >3s từ Discord API bằng cách ACK ngầm ngay lập tức (trừ khi là nút mở modal)
+    if (!action.startsWith('open_') && action !== 'modal_join') {
+      await this.safeDeferReply(interaction, true);
     }
 
     // Xử lý các action nút bấm
@@ -1161,6 +1186,9 @@ export class InteractionHandler {
       return;
     }
 
+    // Tránh lỗi timeout >3s từ Discord API bằng cách ACK ngầm ngay lập tức
+    await this.safeDeferReply(interaction, true);
+
     const selectedValue = interaction.values[0];
 
     if (action === 'seer_target') {
@@ -1357,17 +1385,6 @@ export class InteractionHandler {
       const player = session.game.players.get(interaction.user.id);
       if (player) {
         const updatedResponse = WerewolfComponents.buildPlayerNightSkillResponse(session.game, player);
-        try {
-          if (interaction.isMessageComponent()) {
-            await interaction.update({
-              content: `🐺 **Bạn đã bí mật chọn cắn hạ <@${selectedValue}>!**\n\n${updatedResponse.content}`,
-              components: updatedResponse.components,
-            });
-            return;
-          }
-        } catch {
-          // Fallback if update fails
-        }
         await this.safeReply(interaction, {
           content: `🐺 **Bạn đã bí mật chọn cắn hạ <@${selectedValue}>!**\n\n${updatedResponse.content}`,
           components: updatedResponse.components,
@@ -1400,17 +1417,6 @@ export class InteractionHandler {
       const player = session.game.players.get(interaction.user.id);
       if (player) {
         const updatedResponse = WerewolfComponents.buildPlayerNightSkillResponse(session.game, player);
-        try {
-          if (interaction.isMessageComponent()) {
-            await interaction.update({
-              content: `⚡ **Đã chọn phế kỹ năng của <@${selectedValue}> đêm nay!**\n\n${updatedResponse.content}`,
-              components: updatedResponse.components,
-            });
-            return;
-          }
-        } catch {
-          // Fallback if update fails
-        }
         await this.safeReply(interaction, {
           content: `⚡ **Đã chọn phế kỹ năng của <@${selectedValue}> đêm nay!**\n\n${updatedResponse.content}`,
           components: updatedResponse.components,

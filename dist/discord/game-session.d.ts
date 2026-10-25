@@ -10,6 +10,7 @@ export declare class GameSession {
     readonly client: Client;
     mainMessageId: string | null;
     private timerHandle;
+    private watchdogHandle;
     private botChatTimers;
     private isProcessingPhaseTransition;
     constructor(game: WerewolfGame, db: DatabaseManager, dmManager: DmManager, client: Client);
@@ -105,6 +106,11 @@ export declare class GameSession {
     private schedulePhaseTimer;
     clearBotChatTimers(): void;
     clearPhaseTimer(): void;
+    /**
+     * Watchdog định kỳ mỗi 1.5 giây kiểm tra hạn chót, đảm bảo game không bao giờ bị kẹt
+     */
+    startWatchdog(): void;
+    stopWatchdog(): void;
     /**
      * Kiểm tra hạn chót khi bot khởi động lại (Reboot Recovery)
      */
