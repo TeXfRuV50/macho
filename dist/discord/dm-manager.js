@@ -12,6 +12,9 @@ class DmManager {
      * Tuyệt đối không để lộ danh tính hay kỹ năng ra kênh chung.
      */
     async sendPrivate(client, guild, channel, player, options, gameId) {
+        if (player.isBot) {
+            return { success: true, usedFallbackThread: false };
+        }
         try {
             const user = await client.users.fetch(player.id);
             if (!user) {

@@ -632,6 +632,464 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
       }));
     });
   });
+
+  describe('Kiểm tra nút bấm & Slash Command quản lý Bot trong sảnh chờ', () => {
+    it('Nút "+1 Bot" và "Điền đủ Bot" hoạt động chính xác qua Discord interaction', async () => {
+      const game = new WerewolfGame('game-bot-btn', 'guild-1', 'ch-bot-btn', 'host-1');
+      game.addPlayer('host-1', 'Host');
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      // 1. Host bấm nút "+1 Bot"
+      const addBotCustomId = buildCustomId(game.id, 'LOBBY', 'add_bot', 'host-1');
+      const mockAddBtn = createMockButtonInteraction(addBotCustomId, 'host-1', 'Host');
+      await handler.handleInteraction(mockAddBtn);
+
+      expect(game.players.size).toBe(2);
+      expect(mockAddBtn.getReply().content).toContain('Đã thêm');
+
+      // 2. Host bấm nút "Điền đủ Bot" (fill_bots)
+      const fillBotsCustomId = buildCustomId(game.id, 'LOBBY', 'fill_bots', 'host-1');
+      const mockFillBtn = createMockButtonInteraction(fillBotsCustomId, 'host-1', 'Host');
+      await handler.handleInteraction(mockFillBtn);
+
+      expect(game.players.size).toBe(4);
+      expect(mockFillBtn.getReply().content).toContain('Đã tự động thêm');
+
+      // 3. Host bấm nút "Xóa Bot" (clear_bots)
+      const clearBotsCustomId = buildCustomId(game.id, 'LOBBY', 'clear_bots', 'host-1');
+      const mockClearBtn = createMockButtonInteraction(clearBotsCustomId, 'host-1', 'Host');
+      await handler.handleInteraction(mockClearBtn);
+
+      expect(game.players.size).toBe(1);
+      expect(game.players.has('host-1')).toBe(true);
+    });
+
+    it('Lệnh /addbot và /fillbots thêm bot đúng số lượng yêu cầu', async () => {
+      const game = new WerewolfGame('game-bot-cmd', 'guild-1', 'ch-bot-cmd', 'host-1');
+      game.addPlayer('host-1', 'Host');
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      // 1. /addbot count: 2
+      let reply1: any = null;
+      const mockAddCmd = {
+        commandName: 'addbot',
+        channelId: 'ch-bot-cmd',
+        guildId: 'guild-1',
+        user: { id: 'host-1', username: 'Host' },
+        options: { getInteger: (name: string) => (name === 'count' ? 2 : null) },
+        isChatInputCommand: () => true,
+        isButton: () => false,
+        isStringSelectMenu: () => false,
+        isModalSubmit: () => false,
+        isRepliable: () => true,
+        replied: false,
+        reply: vi.fn(async (options: any) => { reply1 = options; }),
+      } as any;
+
+      await handler.handleInteraction(mockAddCmd);
+      expect(game.players.size).toBe(3);
+      expect(reply1.content).toContain('Đã thêm **2** bot');
+
+      // 2. /fillbots target: 5
+      let reply2: any = null;
+      const mockFillCmd = {
+        commandName: 'fillbots',
+        channelId: 'ch-bot-cmd',
+        guildId: 'guild-1',
+        user: { id: 'host-1', username: 'Host' },
+        options: { getInteger: (name: string) => (name === 'target' ? 5 : null) },
+        isChatInputCommand: () => true,
+        isButton: () => false,
+        isStringSelectMenu: () => false,
+        isModalSubmit: () => false,
+        isRepliable: () => true,
+        replied: false,
+        reply: vi.fn(async (options: any) => { reply2 = options; }),
+      } as any;
+
+      await handler.handleInteraction(mockFillCmd);
+      expect(game.players.size).toBe(5);
+      expect(reply2.content).toContain('Đã tự động thêm 2 bot');
+    });
+
+    it('Bot chat thảo luận trong DISCUSSION không bị schedulePhaseTimer xóa nhầm timers', async () => {
+      vi.useFakeTimers();
+      try {
+        const game = new WerewolfGame('game-bot-disc', 'guild-1', 'ch-bot-disc', 'host-1');
+        game.addPlayer('host-1', 'Người Chơi', false);
+        game.addBotPlayer('Bot Tèo');
+        game.addBotPlayer('Bot Tí');
+        game.addBotPlayer('Bot Mít');
+
+        const sentMessages: string[] = [];
+        const mockChannel = {
+          isTextBased: () => true,
+          isDMBased: () => false,
+          send: vi.fn(async (payload: any) => {
+            if (typeof payload === 'string') {
+              sentMessages.push(payload);
+            } else if (payload?.content) {
+              sentMessages.push(payload.content);
+            }
+            return { id: 'msg-id', edit: vi.fn() };
+          }),
+          messages: {
+            fetch: vi.fn(async () => ({ edit: vi.fn(), delete: vi.fn() })),
+          },
+          permissionOverwrites: {
+            edit: vi.fn(async () => {}),
+          },
+        };
+
+        const mockClient = {
+          channels: {
+            fetch: vi.fn(async () => mockChannel),
+          },
+          guilds: {
+            fetch: vi.fn(async () => ({ roles: { everyone: { id: 'everyone-id' } } })),
+          },
+        } as any;
+
+        const session = new GameSession(game, db, dmManager, mockClient);
+
+        // Kích hoạt advanceToDiscussion
+        await session.advanceToDiscussion();
+
+        // Kiểm tra xem botChatTimers có được giữ lại (không bị clearPhaseTimer xóa sạch ngay)
+        expect((session as any).botChatTimers.length).toBeGreaterThan(0);
+
+        // Chờ các timer đầu tiên kích hoạt
+        await vi.advanceTimersByTimeAsync(3000);
+
+        // Ít nhất 1 bot đã chat vào kênh thảo luận!
+        const botChatFound = sentMessages.some((msg) => msg.includes('🤖') && msg.includes('💬'));
+        expect(botChatFound).toBe(true);
+
+        // Dọn dẹp session
+        session.clearBotChatTimers();
+        session.clearPhaseTimer();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('Bot bỏ phiếu treo cổ trong VOTING giữ bí mật, không làm lộ mục tiêu trên kênh', async () => {
+      const game = new WerewolfGame('game-bot-vote-sec', 'guild-1', 'ch-bot-vote-sec', 'host-1');
+      game.addPlayer('host-1', 'Người Chơi', false);
+      game.addBotPlayer('Bot Sói');
+      game.addBotPlayer('Bot Dân');
+      game.addBotPlayer('Bot Tiên Tri');
+
+      const sentMessages: string[] = [];
+      const mockChannel = {
+        isTextBased: () => true,
+        isDMBased: () => false,
+        send: vi.fn(async (payload: any) => {
+          if (typeof payload === 'string') {
+            sentMessages.push(payload);
+          } else if (payload?.content) {
+            sentMessages.push(payload.content);
+          }
+          return { id: 'msg-id', edit: vi.fn() };
+        }),
+        messages: {
+          fetch: vi.fn(async () => ({ edit: vi.fn(), delete: vi.fn() })),
+        },
+        permissionOverwrites: {
+          edit: vi.fn(async () => {}),
+        },
+      };
+
+      const mockClient = {
+        channels: {
+          fetch: vi.fn(async () => mockChannel),
+        },
+        guilds: {
+          fetch: vi.fn(async () => ({ roles: { everyone: { id: 'everyone-id' } } })),
+        },
+      } as any;
+
+      const session = new GameSession(game, db, dmManager, mockClient);
+
+      await session.advanceToVoting();
+
+      // Kiểm tra tất cả tin nhắn gửi ra trong kênh khi tiến hành vote
+      for (const msg of sentMessages) {
+        // Tuyệt đối không có tin nhắn nào làm lộ mục tiêu bot vote ai (ví dụ: "treo cổ Người Chơi", "chốt 1 phiếu treo cổ")
+        expect(msg).not.toMatch(/treo cổ \*\*.*\*\*/i);
+      }
+
+      session.clearBotChatTimers();
+      session.clearPhaseTimer();
+    });
+  });
+
+  describe('Thực hiện chức năng tại kênh chơi (Ephemeral In-Channel Skills)', () => {
+    it('Bấm "Dùng kỹ năng đêm" khi là Tiên tri: trả về menu soi riêng tư (ephemeral: true)', async () => {
+      const game = new WerewolfGame('game-night-seer', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('seer-1', 'Tiên tri');
+      game.addPlayer('u2', 'Dân 1');
+      game.addPlayer('u3', 'Sói');
+      game.players.get('seer-1')!.roleId = 'SEER';
+      game.phase = 'NIGHT';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      const skillBtnId = buildCustomId(game.id, 'NIGHT', 'use_night_skill', 'all');
+      const mockInteraction = createMockButtonInteraction(skillBtnId, 'seer-1');
+      await handler.handleInteraction(mockInteraction);
+
+      const reply = mockInteraction.getReply();
+      expect(reply.ephemeral).toBe(true);
+      expect(reply.content).toContain('TIÊN TRI');
+      expect(reply.components).toBeDefined();
+      expect(reply.components.length).toBeGreaterThan(0);
+    });
+
+    it('Bấm "Dùng kỹ năng đêm" khi là Sói: trả về danh sách bầy sói & menu cắn riêng tư', async () => {
+      const game = new WerewolfGame('game-night-wolf', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('wolf-1', 'Sói 1');
+      game.addPlayer('wolf-2', 'Sói 2');
+      game.addPlayer('v1', 'Dân');
+      game.players.get('wolf-1')!.roleId = 'WEREWOLF';
+      game.players.get('wolf-1')!.faction = 'WEREWOLF';
+      game.players.get('wolf-2')!.roleId = 'WEREWOLF';
+      game.players.get('wolf-2')!.faction = 'WEREWOLF';
+      game.phase = 'NIGHT';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      const skillBtnId = buildCustomId(game.id, 'NIGHT', 'use_night_skill', 'all');
+      const mockInteraction = createMockButtonInteraction(skillBtnId, 'wolf-1');
+      await handler.handleInteraction(mockInteraction);
+
+      const reply = mockInteraction.getReply();
+      expect(reply.ephemeral).toBe(true);
+      expect(reply.content).toContain('BẦY MA SÓI');
+      expect(reply.content).toContain('Sói 2'); // Hiển thị đồng đội bầy sói
+      expect(reply.components).toBeDefined();
+    });
+
+    it('Bấm "Dùng kỹ năng đêm" khi là Dân làng: thông báo không có kỹ năng đêm và ngủ say', async () => {
+      const game = new WerewolfGame('game-night-vill', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('vill-1', 'Dân làng');
+      game.players.get('vill-1')!.roleId = 'VILLAGER';
+      game.phase = 'NIGHT';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      const skillBtnId = buildCustomId(game.id, 'NIGHT', 'use_night_skill', 'all');
+      const mockInteraction = createMockButtonInteraction(skillBtnId, 'vill-1');
+      await handler.handleInteraction(mockInteraction);
+
+      const reply = mockInteraction.getReply();
+      expect(reply.ephemeral).toBe(true);
+      expect(reply.content).toContain('Bạn không có kỹ năng hành động trong ban đêm');
+    });
+
+    it('Xạ thủ bấm "Xạ thủ nổ súng" trong pha Thảo luận: trả về menu nổ súng riêng tư', async () => {
+      const game = new WerewolfGame('game-gunner-btn', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('gunner-1', 'Xạ thủ');
+      game.addPlayer('u2', 'Dân 1');
+      game.players.get('gunner-1')!.roleId = 'GUNNER';
+      game.players.get('gunner-1')!.skills.gunnerBulletsRemaining = 2;
+      game.phase = 'DISCUSSION';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      const shootBtnId = buildCustomId(game.id, 'DISCUSSION', 'gunner_shoot_btn', 'all');
+      const mockInteraction = createMockButtonInteraction(shootBtnId, 'gunner-1');
+      await handler.handleInteraction(mockInteraction);
+
+      const reply = mockInteraction.getReply();
+      expect(reply.ephemeral).toBe(true);
+      expect(reply.content).toContain('XẠ THỦ');
+      expect(reply.content).toContain('viên đạn bạc');
+      expect(reply.content).toContain('**2**');
+      expect(reply.components).toBeDefined();
+    });
+
+    it('Người chơi không phải Xạ thủ bấm nút nổ súng bị từ chối riêng tư', async () => {
+      const game = new WerewolfGame('game-not-gunner', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('vill-1', 'Dân làng');
+      game.players.get('vill-1')!.roleId = 'VILLAGER';
+      game.phase = 'DISCUSSION';
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      const shootBtnId = buildCustomId(game.id, 'DISCUSSION', 'gunner_shoot_btn', 'all');
+      const mockInteraction = createMockButtonInteraction(shootBtnId, 'vill-1');
+      await handler.handleInteraction(mockInteraction);
+
+      const reply = mockInteraction.getReply();
+      expect(reply.ephemeral).toBe(true);
+      expect(reply.content).toContain('Bạn không phải là Xạ thủ');
+    });
+
+    it('Sói trắng không lộ role với sói khác và các đồng đội sói chỉ ghi mỗi chữ Sói', async () => {
+      const game = new WerewolfGame('game-wolf-mask', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('w-normal', 'Người chơi 1');
+      game.addPlayer('w-white', 'Người chơi 2');
+      game.addPlayer('w-seer', 'Người chơi 3');
+      game.addPlayer('vill-1', 'Dân 1');
+
+      game.players.get('w-normal')!.roleId = 'WEREWOLF';
+      game.players.get('w-normal')!.faction = 'WEREWOLF';
+
+      game.players.get('w-white')!.roleId = 'WHITE_WOLF';
+      game.players.get('w-white')!.faction = 'WEREWOLF';
+
+      game.players.get('w-seer')!.roleId = 'WOLF_SEER';
+      game.players.get('w-seer')!.faction = 'WEREWOLF';
+
+      game.players.get('vill-1')!.roleId = 'VILLAGER';
+      game.players.get('vill-1')!.faction = 'VILLAGE';
+
+      game.phase = 'NIGHT';
+      game.nightNumber = 1;
+
+      // w-normal bấm dùng kỹ năng đêm
+      const skillRes = WerewolfComponents.buildPlayerNightSkillResponse(game, game.players.get('w-normal')!);
+      // Người xem thấy chính mình có vai thật và (Bạn)
+      expect(skillRes.content).toContain('Sói thường');
+      expect(skillRes.content).toContain('(Bạn)');
+
+      // Nhưng đối với w-white và w-seer, chỉ ghi là 🐺 Sói! Tuyệt đối không lộ Sói Trắng hay Sói Tiên Tri
+      expect(skillRes.content).not.toContain('Sói Trắng');
+      expect(skillRes.content).not.toContain('Sói trắng');
+      expect(skillRes.content).not.toContain('Sói Tiên Tri');
+      expect(skillRes.content).not.toContain('Sói tiên tri');
+      expect(skillRes.content).toContain('• <@w-white> (**Người chơi 2**) - 🐺 Sói');
+      expect(skillRes.content).toContain('• <@w-seer> (**Người chơi 3**) - 🐺 Sói');
+    });
+
+    it('Bầy sói hiển thị số lượng vote mà các con sói khác đang chọn trên bảng và menu', async () => {
+      const game = new WerewolfGame('game-wolf-tally', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('wolf-1', 'Sói 1');
+      game.addPlayer('wolf-2', 'Sói 2');
+      game.addPlayer('vill-1', 'Dân 1');
+      game.addPlayer('vill-2', 'Dân 2');
+
+      game.players.get('wolf-1')!.roleId = 'WEREWOLF';
+      game.players.get('wolf-1')!.faction = 'WEREWOLF';
+      game.players.get('wolf-2')!.roleId = 'WEREWOLF';
+      game.players.get('wolf-2')!.faction = 'WEREWOLF';
+      game.players.get('vill-1')!.roleId = 'VILLAGER';
+      game.players.get('vill-1')!.faction = 'VILLAGE';
+      game.players.get('vill-2')!.roleId = 'VILLAGER';
+      game.players.get('vill-2')!.faction = 'VILLAGE';
+
+      game.phase = 'NIGHT';
+      game.nightNumber = 1;
+
+      // wolf-1 vote cắn vill-1
+      game.submitAction({
+        userId: 'wolf-1',
+        roleId: 'WEREWOLF',
+        type: 'WOLF_VOTE',
+        targetId: 'vill-1',
+        nightNumber: 1,
+        phase: 'NIGHT',
+      });
+
+      // wolf-2 kiểm tra kỹ năng đêm
+      const skillRes2 = WerewolfComponents.buildPlayerNightSkillResponse(game, game.players.get('wolf-2')!);
+      // Bảng hiển thị Dân 1 đang nhận 1 phiếu
+      expect(skillRes2.content).toContain('Dân 1');
+      expect(skillRes2.content).toContain('1** phiếu');
+
+      // Trong menu chọn của wolf-2, Dân 1 có badge [1 phiếu]
+      const biteMenuRow = (skillRes2.components[0].toJSON() as any).components[0];
+      const optVill1 = biteMenuRow.options.find((o: any) => o.value === 'vill-1');
+      expect(optVill1.label).toContain('[1 phiếu]');
+      expect(optVill1.description).toContain('1 phiếu cắn từ bầy sói');
+    });
+
+    it('Nút "Thêm tất cả vai" tại Sảnh chờ và Bảng chỉnh vai thêm toàn bộ vai vào ván đấu', async () => {
+      const game = new WerewolfGame('game-add-all-roles', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('host-1', 'Chủ phòng');
+      game.addPlayer('p2', 'Người 2');
+      game.addPlayer('p3', 'Người 3');
+      game.addPlayer('p4', 'Người 4');
+
+      // Ban đầu chỉ có 2 sói 1 tiên tri
+      game.config.roles = { WEREWOLF: 2, SEER: 1 };
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      // 1. Chủ phòng bấm nút "Thêm tất cả vai" từ sảnh chờ
+      const addAllLobbyBtnId = buildCustomId(game.id, 'LOBBY', 'add_all_roles', 'host-1');
+      const mockInteraction = createMockButtonInteraction(addAllLobbyBtnId, 'host-1');
+      await handler.handleInteraction(mockInteraction);
+
+      expect(mockInteraction.getReply().content).toContain('Đã thêm tất cả các vai trò');
+
+      // Kiểm tra tất cả các vai chuẩn đều có số lượng >= 1
+      expect(game.config.roles['WEREWOLF']).toBe(2);
+      expect(game.config.roles['ALPHA_WOLF']).toBe(1);
+      expect(game.config.roles['SEER']).toBe(1);
+      expect(game.config.roles['BODYGUARD']).toBe(1);
+      expect(game.config.roles['WITCH']).toBe(1);
+      expect(game.config.roles['HUNTER']).toBe(1);
+      expect(game.config.roles['DOCTOR']).toBe(1);
+      expect(game.config.roles['GUNNER']).toBe(1);
+      expect(game.config.roles['DETECTIVE']).toBe(1);
+      expect(game.config.roles['WHITE_WOLF']).toBe(1);
+      expect(game.config.roles['SERIAL_KILLER']).toBe(1);
+
+      // Tổng số lượng vai trò được cấu hình phải >= 19
+      const totalRoles = Object.values(game.config.roles).reduce((a, b) => a + b, 0);
+      expect(totalRoles).toBeGreaterThanOrEqual(19);
+
+      // 2. Người khác không phải chủ phòng bấm nút bị từ chối
+      const mockStranger = createMockButtonInteraction(addAllLobbyBtnId, 'p2');
+      await handler.handleInteraction(mockStranger);
+      expect(mockStranger.getReply().content).toContain('Đây là nút riêng dành cho người chơi khác');
+    });
+
+    it('Lệnh /addallroles thêm tất cả các vai trò vào ván đấu', async () => {
+      const game = new WerewolfGame('game-cmd-all-roles', 'guild-1', 'ch-1', 'host-1');
+      game.addPlayer('host-1', 'Chủ phòng');
+      game.config.roles = {};
+
+      const session = new GameSession(game, db, dmManager, {} as any);
+      handler.registerSession(session);
+
+      let replyPayload: any = null;
+      const mockCommandInteraction: any = {
+        isChatInputCommand: () => true,
+        isButton: () => false,
+        isStringSelectMenu: () => false,
+        isModalSubmit: () => false,
+        isRepliable: () => true,
+        replied: false,
+        deferred: false,
+        commandName: 'addallroles',
+        guildId: 'guild-1',
+        channelId: 'ch-1',
+        user: { id: 'host-1', username: 'Host' },
+        reply: vi.fn(async (payload: any) => {
+          replyPayload = payload;
+        }),
+      };
+
+      await handler.handleInteraction(mockCommandInteraction);
+      expect(replyPayload.content).toContain('Đã thêm tất cả các vai trò');
+      expect(game.config.roles['ALPHA_WOLF']).toBe(1);
+      expect(game.config.roles['DOCTOR']).toBe(1);
+      expect(game.config.roles['WHITE_WOLF']).toBe(1);
+    });
+  });
 });
 
 

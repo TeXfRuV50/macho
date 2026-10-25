@@ -60,7 +60,15 @@ export class WerewolfGame {
   // LOBBY MANAGEMENT
   // ==========================================
 
-  public addPlayer(userId: string, name: string): { success: boolean; message: string } {
+  public static readonly BOT_NAMES = [
+    'Bot Tèo', 'Bot Tí', 'Bot Na', 'Bot Mít', 'Bot Bờm',
+    'Bot Cún', 'Bot Đậu', 'Bot Bắp', 'Bot Thỏ', 'Bot Gấu',
+    'Bot Cáo', 'Bot Sóc', 'Bot Mèo', 'Bot Heo', 'Bot Vịt',
+    'Bot Rùa', 'Bot Ong', 'Bot Khỉ', 'Bot Nhím', 'Bot Hươu',
+    'Bot Sói Con', 'Bot Bé Bự', 'Bot Bác Ba', 'Bot Bác Bảy'
+  ];
+
+  public addPlayer(userId: string, name: string, isBot: boolean = false): { success: boolean; message: string } {
     if (this.phase !== 'LOBBY') {
       return { success: false, message: 'Trận đấu đã bắt đầu hoặc đã kết thúc, không thể tham gia.' };
     }
@@ -76,15 +84,18 @@ export class WerewolfGame {
       faction: 'VILLAGE',
       isAlive: true,
       canVote: true,
+      isBot,
       skills: {
         witchHealRemaining: 1,
         witchPoisonRemaining: 1,
         demonWolfInfectRemaining: 1,
         lastProtectedTargetId: null,
+        doctorLastProtectedTargetId: null,
+        gunnerBulletsRemaining: 2,
         hasUsedHunterShot: false,
         idiotRevealed: false,
       },
-      hasConfirmedRole: false,
+      hasConfirmedRole: isBot ? true : false,
       joinedAt: Date.now(),
     };
 
@@ -92,8 +103,113 @@ export class WerewolfGame {
     if (this.players.size >= 4) {
       this.config = balancePresetForPlayerCount(this.config, this.players.size);
     }
-    this.log(`Người chơi ${name} đã tham gia sảnh chờ.`);
+    this.log(`Người chơi ${name}${isBot ? ' (Bot)' : ''} đã tham gia sảnh chờ.`);
     return { success: true, message: `Người chơi ${name} đã tham gia.` };
+  }
+
+  public addBotPlayer(customName?: string): { success: boolean; message: string; botId?: string } {
+    if (this.phase !== 'LOBBY') {
+      return { success: false, message: 'Trận đấu đã bắt đầu hoặc đã kết thúc, không thể thêm bot.' };
+    }
+    if (this.players.size >= 25) {
+      return { success: false, message: 'Sảnh chờ đã đạt tối đa 25 người chơi.' };
+    }
+
+    const existingNames = new Set(Array.from(this.players.values()).map((p) => p.name));
+    let botName = customName;
+    if (!botName) {
+      const availableName = WerewolfGame.BOT_NAMES.find((n) => !existingNames.has(n));
+      if (availableName) {
+        botName = availableName;
+      } else {
+        let count = 1;
+        while (existingNames.has(`Bot ${count}`)) {
+          count++;
+        }
+        botName = `Bot ${count}`;
+      }
+    }
+
+    let botNum = 1;
+    while (this.players.has(`bot_${botNum}`)) {
+      botNum++;
+    }
+    const botId = `bot_${botNum}`;
+
+    const res = this.addPlayer(botId, botName, true);
+    if (!res.success) return res;
+
+    return { success: true, message: `Đã thêm ${botName} vào sảnh chờ!`, botId };
+  }
+
+  public fillBots(targetCount?: number): { success: boolean; message: string; addedCount: number } {
+    if (this.phase !== 'LOBBY') {
+      return { success: false, message: 'Trận đấu đã bắt đầu hoặc đã kết thúc.', addedCount: 0 };
+    }
+
+    const specialRolesCount = Object.entries(this.config.roles)
+      .filter(([roleId, count]) => roleId !== 'VILLAGER' && count > 0)
+      .reduce((sum, [_, count]) => sum + count, 0);
+
+    const minRequired = Math.max(4, specialRolesCount);
+    const totalRolesConfigured = Object.values(this.config.roles).reduce((a, b) => a + Math.max(0, b), 0);
+    const defaultGoal = Math.max(minRequired, totalRolesConfigured);
+    const goal = targetCount !== undefined ? Math.max(minRequired, Math.min(25, targetCount)) : defaultGoal;
+
+    let added = 0;
+    while (this.players.size < goal) {
+      const res = this.addBotPlayer();
+      if (!res.success) break;
+      added++;
+    }
+
+    if (added === 0) {
+      return {
+        success: true,
+        message: `Sảnh chờ đã có đủ ${this.players.size} người chơi (mục tiêu: ${goal}).`,
+        addedCount: 0,
+      };
+    }
+
+    return {
+      success: true,
+      message: `Đã tự động thêm ${added} bot để đạt đủ ${this.players.size} người chơi! Sẵn sàng bắt đầu trận đấu.`,
+      addedCount: added,
+    };
+  }
+
+  public removeBotPlayer(): { success: boolean; message: string } {
+    if (this.phase !== 'LOBBY') {
+      return { success: false, message: 'Không thể xóa bot khi trận đấu đang diễn ra.' };
+    }
+
+    const bots = Array.from(this.players.values()).filter((p) => p.isBot);
+    if (bots.length === 0) {
+      return { success: false, message: 'Không có bot nào trong phòng để xóa.' };
+    }
+
+    const lastBot = bots[bots.length - 1];
+    return this.removePlayer(lastBot.id);
+  }
+
+  public clearBots(): { success: boolean; message: string; removedCount: number } {
+    if (this.phase !== 'LOBBY') {
+      return { success: false, message: 'Không thể xóa bot khi trận đấu đang diễn ra.', removedCount: 0 };
+    }
+
+    const botIds = Array.from(this.players.values())
+      .filter((p) => p.isBot)
+      .map((p) => p.id);
+
+    for (const bId of botIds) {
+      this.removePlayer(bId);
+    }
+
+    return {
+      success: true,
+      message: `Đã xóa ${botIds.length} bot khỏi sảnh chờ. Hiện còn ${this.players.size} người chơi.`,
+      removedCount: botIds.length,
+    };
   }
 
   public removePlayer(userId: string): { success: boolean; message: string } {
@@ -190,7 +306,7 @@ export class WerewolfGame {
       player.faction = roleInfo.faction;
       player.isAlive = true;
       player.canVote = true;
-      player.hasConfirmedRole = false;
+      player.hasConfirmedRole = Boolean(player.isBot);
 
       // Khởi tạo kỹ năng
       player.skills = {
@@ -198,6 +314,8 @@ export class WerewolfGame {
         witchPoisonRemaining: assignedRoleId === 'WITCH' ? 1 : 0,
         demonWolfInfectRemaining: assignedRoleId === 'DEMON_WOLF' ? 1 : 0,
         lastProtectedTargetId: null,
+        doctorLastProtectedTargetId: null,
+        gunnerBulletsRemaining: assignedRoleId === 'GUNNER' ? 2 : 0,
         hasUsedHunterShot: false,
         idiotRevealed: false,
       };
@@ -327,6 +445,7 @@ export class WerewolfGame {
     lynchedPlayer: Player | null;
     idiotSurvived: boolean;
     tannerWon: boolean;
+    hunterTriggeredId: string | null;
     isTie: boolean;
     revoteTriggered: boolean;
     voteCounts: Record<string, number>;
@@ -380,6 +499,7 @@ export class WerewolfGame {
         lynchedPlayer: null,
         idiotSurvived: false,
         tannerWon: false,
+        hunterTriggeredId: null,
         isTie: false,
         revoteTriggered: false,
         voteCounts,
@@ -395,6 +515,7 @@ export class WerewolfGame {
           lynchedPlayer: null,
           idiotSurvived: false,
           tannerWon: false,
+          hunterTriggeredId: null,
           isTie: true,
           revoteTriggered: true,
           voteCounts,
@@ -412,6 +533,7 @@ export class WerewolfGame {
           lynchedPlayer: null,
           idiotSurvived: false,
           tannerWon: false,
+          hunterTriggeredId: null,
           isTie: true,
           revoteTriggered: false,
           voteCounts,
@@ -433,14 +555,14 @@ export class WerewolfGame {
       lynchedPlayer.canVote = false;
       idiotSurvived = true;
       this.log(`Người bị treo cổ là Thằng ngốc ${lynchedPlayer.name}! Dân làng tha mạng nhưng tước vĩnh viễn quyền biểu quyết.`);
-    } else if (lynchedPlayer.roleId === 'TANNER') {
-      // 2. Kẻ chán đời (Tanner) bị treo cổ -> Thắng độc lập!
+    } else if (lynchedPlayer.roleId === 'TANNER' || lynchedPlayer.roleId === 'FOOL') {
+      // 2. Kẻ khờ (Fool) / Kẻ chán đời (Tanner) bị treo cổ -> Thắng độc lập!
       lynchedPlayer.isAlive = false;
       lynchedPlayer.deathReason = 'LYNCH';
       lynchedPlayer.deathNight = this.nightNumber;
       lynchedPlayer.deathPhase = 'RESOLUTION';
       tannerWon = true;
-      this.log(`Kẻ chán đời ${lynchedPlayer.name} đã bị treo cổ thành công và ĐẠT ĐƯỢC ƯỚC NGUYỆN CHIẾN THẮNG!`);
+      this.log(`${lynchedPlayer.roleId === 'FOOL' ? 'Kẻ khờ' : 'Kẻ chán đời'} ${lynchedPlayer.name} đã bị treo cổ thành công và ĐẠT ĐƯỢC ƯỚC NGUYỆN CHIẾN THẮNG!`);
     } else {
       // Treo cổ bình thường
       lynchedPlayer.isAlive = false;
@@ -488,6 +610,7 @@ export class WerewolfGame {
       lynchedPlayer,
       idiotSurvived,
       tannerWon,
+      hunterTriggeredId,
       isTie: false,
       revoteTriggered: false,
       voteCounts,
@@ -560,6 +683,12 @@ export class WerewolfGame {
         if (player.faction !== 'WEREWOLF') {
           return { success: false, message: 'Bạn không thuộc Phe Sói.' };
         }
+        if (action.secondaryTargetId && !this.isAlphaWolfActive()) {
+          return { success: false, message: 'Bầy sói không thể cắn 2 người khi không có Sói Trùm hoạt động hoặc đã có sói chết.' };
+        }
+        if (action.secondaryTargetId && action.secondaryTargetId === action.targetId) {
+          return { success: false, message: 'Hai mục tiêu cắn không được trùng nhau.' };
+        }
       }
 
       // 5. Sói quỷ chuyển hóa
@@ -586,12 +715,59 @@ export class WerewolfGame {
         if (player.roleId !== 'WITCH') {
           return { success: false, message: 'Bạn không phải là Phù thủy.' };
         }
+        if (this.nightNumber === 1) {
+          return { success: false, message: 'Theo luật Werewolf Online, Phù thủy không thể dùng bình độc vào Đêm 1!' };
+        }
         if (player.skills.witchPoisonRemaining <= 0) {
           return { success: false, message: 'Bạn đã dùng hết bình độc.' };
         }
       }
 
-      // 7. Sói trắng
+      // 7. Bác sĩ (Doctor - Werewolf Online)
+      if (action.type === 'DOCTOR_PROTECT') {
+        if (player.roleId !== 'DOCTOR') {
+          return { success: false, message: 'Bạn không phải là Bác sĩ.' };
+        }
+        if (action.targetId === player.skills.doctorLastProtectedTargetId) {
+          return { success: false, message: 'Bác sĩ không thể bảo vệ cùng một người 2 đêm liên tiếp.' };
+        }
+      }
+
+      // 8. Thám tử (Detective - Werewolf Online)
+      if (action.type === 'DETECTIVE_INVESTIGATE') {
+        if (player.roleId !== 'DETECTIVE') {
+          return { success: false, message: 'Bạn không phải là Thám tử.' };
+        }
+        if (!action.targetId || !action.secondaryTargetId || action.targetId === action.secondaryTargetId) {
+          return { success: false, message: 'Thám tử phải chọn 2 người chơi khác nhau để điều tra.' };
+        }
+      }
+
+      // 9. Sói tiên tri (Wolf Seer - Werewolf Online)
+      if (action.type === 'WOLF_SEER_INVESTIGATE') {
+        if (player.roleId !== 'WOLF_SEER') {
+          return { success: false, message: 'Bạn không phải là Sói tiên tri.' };
+        }
+        const aliveWolves = Array.from(this.players.values()).filter((p) => p.isAlive && p.faction === 'WEREWOLF');
+        if (aliveWolves.length <= 1) {
+          return { success: false, message: 'Bạn là con sói cuối cùng còn sống nên không thể soi vai trò!' };
+        }
+        if (action.targetId === player.id) {
+          return { success: false, message: 'Sói tiên tri không thể soi chính mình.' };
+        }
+      }
+
+      // 10. Kẻ sát nhân (Serial Killer - Werewolf Online)
+      if (action.type === 'SERIAL_KILLER_KILL') {
+        if (player.roleId !== 'SERIAL_KILLER') {
+          return { success: false, message: 'Bạn không phải là Kẻ sát nhân.' };
+        }
+        if (action.targetId === player.id) {
+          return { success: false, message: 'Kẻ sát nhân không thể tự đâm chính mình.' };
+        }
+      }
+
+      // 11. Sói trắng
       if (action.type === 'WHITE_WOLF_KILL') {
         if (player.roleId !== 'WHITE_WOLF') {
           return { success: false, message: 'Bạn không phải là Sói trắng.' };
@@ -604,6 +780,49 @@ export class WerewolfGame {
           return { success: false, message: 'Mục tiêu phải là một con sói khác trong bầy.' };
         }
       }
+    } else if (this.phase === 'DISCUSSION') {
+      // Xạ thủ nổ súng ban ngày (Gunner - Werewolf Online)
+      if (action.type === 'GUNNER_SHOOT') {
+        if (player.roleId !== 'GUNNER') {
+          return { success: false, message: 'Bạn không phải là Xạ thủ.' };
+        }
+        if (!player.skills.gunnerBulletsRemaining || player.skills.gunnerBulletsRemaining <= 0) {
+          return { success: false, message: 'Bạn đã hết đạn bạc rồi!' };
+        }
+        if (!action.targetId || action.targetId === player.id) {
+          return { success: false, message: 'Vui lòng chọn một người chơi khác để bắn!' };
+        }
+        const target = this.players.get(action.targetId);
+        if (!target || !target.isAlive) {
+          return { success: false, message: 'Mục tiêu đã chết hoặc không tồn tại.' };
+        }
+
+        player.skills.gunnerBulletsRemaining -= 1;
+        target.isAlive = false;
+        target.deathReason = 'GUNNER_SHOT';
+        target.deathPhase = 'DISCUSSION';
+        target.deathNight = this.nightNumber;
+        this.log(`💥 [TIẾNG SÚNG VANG RỀN] Xạ thủ ${player.name} đã nổ súng bắn hạ ${target.name}!`);
+
+        if (target.loverId) {
+          const lover = this.players.get(target.loverId);
+          if (lover && lover.isAlive) {
+            lover.isAlive = false;
+            lover.deathReason = 'HEARTBREAK';
+            lover.deathPhase = 'DISCUSSION';
+            lover.deathNight = this.nightNumber;
+            this.log(`${lover.name} vì quá đau lòng trước cái chết của ${target.name} nên đã quyên sinh theo!`);
+          }
+        }
+
+        if (target.roleId === 'HUNTER' && !target.skills.hasUsedHunterShot) {
+          this.pendingHunterId = target.id;
+          this.log(`Thợ săn ${target.name} bị bắn hạ và chuẩn bị nổ súng trả thù!`);
+        }
+
+        return { success: true, message: `Bạn đã nổ súng bắn gục ${target.name}!` };
+      }
+      return { success: false, message: 'Hành động không hợp lệ trong pha thảo luận.' };
     } else if (this.phase === 'VOTING') {
       if (action.type === 'DAY_VOTE' || action.type === 'DAY_VOTE_SKIP') {
         if (!player.canVote) {
@@ -640,19 +859,84 @@ export class WerewolfGame {
     return { success: true, message: 'Hành động đã được ghi nhận.' };
   }
 
+  /**
+   * Kiểm tra xem đã có bất kỳ con sói nào chết trong ván đấu hay chưa.
+   * Bao gồm cả Sói thường, Sói quỷ, Sói cuồng nộ, Sói tiên tri, Sói trắng, Sói trùm...
+   */
+  public hasAnyWolfDied(): boolean {
+    for (const player of this.players.values()) {
+      if (!player.isAlive) {
+        if (
+          player.faction === 'WEREWOLF' ||
+          player.originalRoleId === 'WEREWOLF' ||
+          player.originalRoleId === 'ALPHA_WOLF' ||
+          player.originalRoleId === 'DEMON_WOLF' ||
+          player.originalRoleId === 'BERSERK_WOLF' ||
+          player.originalRoleId === 'WOLF_SEER' ||
+          player.originalRoleId === 'WHITE_WOLF'
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Sói Trùm có đang kích hoạt khả năng cắn 2 người hay không:
+   * Có ít nhất 1 Sói Trùm còn sống VÀ chưa có con sói nào chết.
+   */
+  public isAlphaWolfActive(): boolean {
+    const hasAliveAlphaWolf = Array.from(this.players.values()).some(
+      (p) => p.isAlive && p.roleId === 'ALPHA_WOLF'
+    );
+    return hasAliveAlphaWolf && !this.hasAnyWolfDied();
+  }
+
+  /**
+   * Tổng hợp số phiếu cắn hiện tại của bầy sói trong đêm này.
+   * Trả về Map<targetId, voteCount>.
+   */
+  public getWolfVoteTally(): Map<string, number> {
+    const tally = new Map<string, number>();
+    const wolfVotes = this.currentPhaseActions.filter((a) => a.type === 'WOLF_VOTE');
+
+    for (const vote of wolfVotes) {
+      const wolf = this.players.get(vote.userId);
+      if (!wolf || !wolf.isAlive || wolf.faction !== 'WEREWOLF') continue;
+
+      if (vote.targetId) {
+        const target = this.players.get(vote.targetId);
+        if (target && target.isAlive) {
+          tally.set(vote.targetId, (tally.get(vote.targetId) || 0) + 1);
+        }
+      }
+
+      if (vote.secondaryTargetId && this.isAlphaWolfActive()) {
+        const target2 = this.players.get(vote.secondaryTargetId);
+        if (target2 && target2.isAlive && target2.id !== vote.targetId) {
+          tally.set(vote.secondaryTargetId, (tally.get(vote.secondaryTargetId) || 0) + 1);
+        }
+      }
+    }
+
+    return tally;
+  }
+
   // ==========================================
   // WIN CONDITION EVALUATION
   // ==========================================
 
   public checkWinCondition(): GameWinResult {
-    // Nếu Tanner vừa thắng ở pha treo cổ
+    // Nếu Tanner hoặc Fool vừa thắng ở pha treo cổ
     if (this.lastLynchResult?.tannerWon) {
       const tanner = this.lastLynchResult.lynchedPlayer!;
+      const isFool = tanner.roleId === 'FOOL';
       return {
         winner: 'SOLO',
-        winnerRoleId: 'TANNER',
+        winnerRoleId: isFool ? 'FOOL' : 'TANNER',
         winnerPlayerIds: [tanner.id],
-        reason: `Kẻ chán đời ${tanner.name} đã bị treo cổ thành công và giành chiến thắng độc lập!`,
+        reason: `${isFool ? 'Kẻ khờ' : 'Kẻ chán đời'} ${tanner.name} đã bị treo cổ thành công và giành chiến thắng độc lập!`,
       };
     }
 
@@ -684,7 +968,30 @@ export class WerewolfGame {
       }
     }
 
-    // 3. Kiểm tra Sói trắng thắng độc lập
+    // 3. Kiểm tra Kẻ sát nhân (Serial Killer) thắng độc lập
+    const aliveSerialKillers = alivePlayers.filter((p) => p.roleId === 'SERIAL_KILLER');
+    if (aliveSerialKillers.length === 1) {
+      const sk = aliveSerialKillers[0];
+      // Nếu SK là người duy nhất sống sót, hoặc chỉ còn 1v1 với người khác (và không phải cặp đôi yêu nhau)
+      if (alivePlayers.length === 1) {
+        return {
+          winner: 'SOLO',
+          winnerRoleId: 'SERIAL_KILLER',
+          winnerPlayerIds: [sk.id],
+          reason: `Kẻ sát nhân ${sk.name} đã tàn sát toàn bộ ngôi làng và là người sống sót duy nhất!`,
+        };
+      }
+      if (alivePlayers.length === 2) {
+        return {
+          winner: 'SOLO',
+          winnerRoleId: 'SERIAL_KILLER',
+          winnerPlayerIds: [sk.id],
+          reason: `Chỉ còn lại Kẻ sát nhân ${sk.name} và một người sống sót. Với dao sắc và khả năng bất tử trong đêm, Kẻ sát nhân đã thanh trừng kẻ còn lại để giành chiến thắng tuyệt đối!`,
+        };
+      }
+    }
+
+    // 4. Kiểm tra Sói trắng thắng độc lập
     // Sói trắng là người duy nhất còn sống sót trong cả làng
     if (alivePlayers.length === 1 && alivePlayers[0].roleId === 'WHITE_WOLF') {
       const ww = alivePlayers[0];
@@ -700,10 +1007,9 @@ export class WerewolfGame {
     const aliveWolves = alivePlayers.filter((p) => p.faction === 'WEREWOLF');
     const aliveNonWolves = alivePlayers.filter((p) => p.faction !== 'WEREWOLF');
 
-    // 4. Phe Sói thắng:
-    // Số Sói >= Số người không phải Sói
-    if (aliveWolves.length >= aliveNonWolves.length && aliveWolves.length > 0) {
-      // Ngoại lệ: Nếu chỉ còn 2 người và là Cặp đôi khác phe, điều kiện 2 đã xử lý ở trên
+    // 5. Phe Sói thắng:
+    // Số Sói >= Số người không phải Sói VÀ không còn Kẻ sát nhân (vì SK có thể giết sói trong đêm và miễn nhiễm cắn)
+    if (aliveWolves.length >= aliveNonWolves.length && aliveWolves.length > 0 && aliveSerialKillers.length === 0) {
       return {
         winner: 'WEREWOLF',
         winnerPlayerIds: aliveWolves.map((w) => w.id),
@@ -711,14 +1017,14 @@ export class WerewolfGame {
       };
     }
 
-    // 5. Phe Dân thắng:
-    // Toàn bộ Sói và các mối hiểm họa độc lập đã bị tiêu diệt
-    if (aliveWolves.length === 0) {
+    // 6. Phe Dân thắng:
+    // Toàn bộ Sói và Kẻ sát nhân đã bị tiêu diệt
+    if (aliveWolves.length === 0 && aliveSerialKillers.length === 0) {
       const aliveVillagers = alivePlayers.filter((p) => p.faction === 'VILLAGE');
       return {
         winner: 'VILLAGE',
         winnerPlayerIds: aliveVillagers.map((v) => v.id),
-        reason: `Toàn bộ bầy Sói hung ác đã bị tiêu diệt! Bình yên đã trở lại với Dân làng.`,
+        reason: `Toàn bộ bầy Sói hung ác và các thế lực tà ác đã bị tiêu diệt! Bình yên đã trở lại với Dân làng.`,
       };
     }
 

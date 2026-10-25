@@ -33,6 +33,47 @@ exports.SLASH_COMMANDS = [
         .setDescription('Chủ phòng xóa người chơi khỏi sảnh chờ')
         .addUserOption((opt) => opt.setName('user').setDescription('Người chơi muốn xóa').setRequired(true)),
     new discord_js_1.SlashCommandBuilder()
+        .setName('addbot')
+        .setDescription('Chủ phòng thêm người chơi Bot ảo vào sảnh chờ để đủ số lượng')
+        .addIntegerOption((opt) => opt
+        .setName('count')
+        .setDescription('Số lượng bot muốn thêm (Mặc định: 1, tối đa: 20)')
+        .setMinValue(1)
+        .setMaxValue(20)
+        .setRequired(false)),
+    new discord_js_1.SlashCommandBuilder()
+        .setName('fillbots')
+        .setDescription('Tự động điền đủ bot vào sảnh chờ để bắt đầu ván (≥ 4 người)')
+        .addIntegerOption((opt) => opt
+        .setName('target')
+        .setDescription('Tổng số người chơi mong muốn (Mặc định: đủ vai hoặc tối thiểu 4 người)')
+        .setMinValue(4)
+        .setMaxValue(25)
+        .setRequired(false)),
+    new discord_js_1.SlashCommandBuilder()
+        .setName('clearbots')
+        .setDescription('Chủ phòng xóa toàn bộ Bot ảo khỏi sảnh chờ'),
+    new discord_js_1.SlashCommandBuilder()
+        .setName('bot')
+        .setDescription('Quản lý người chơi Bot ảo trong sảnh chờ')
+        .addSubcommand((sub) => sub
+        .setName('add')
+        .setDescription('Thêm bot ảo vào sảnh')
+        .addIntegerOption((opt) => opt.setName('count').setDescription('Số lượng bot (1-20)').setMinValue(1).setMaxValue(20).setRequired(false)))
+        .addSubcommand((sub) => sub
+        .setName('fill')
+        .setDescription('Tự động điền bot cho đủ số lượng bắt đầu ván')
+        .addIntegerOption((opt) => opt.setName('target').setDescription('Số người chơi mục tiêu (4-25)').setMinValue(4).setMaxValue(25).setRequired(false)))
+        .addSubcommand((sub) => sub
+        .setName('remove')
+        .setDescription('Xóa bớt 1 bot ảo gần nhất'))
+        .addSubcommand((sub) => sub
+        .setName('clear')
+        .setDescription('Xóa tất cả bot ảo trong sảnh')),
+    new discord_js_1.SlashCommandBuilder()
+        .setName('addallroles')
+        .setDescription('Chủ phòng thêm nhanh tất cả các vai trò vào ván đấu (mỗi vai 1 vị trí)'),
+    new discord_js_1.SlashCommandBuilder()
         .setName('custom')
         .setDescription('Mở trình tùy chỉnh đội hình, thời gian và luật chơi của ván đấu'),
     new discord_js_1.SlashCommandBuilder()

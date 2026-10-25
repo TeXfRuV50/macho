@@ -138,7 +138,7 @@ describe('NightResolver - Kỹ năng ban đêm & Thứ tự giải quyết', () 
     expect(updatedPlayers.get('witch')?.skills.witchHealRemaining).toBe(0);
   });
 
-  it('Phù thủy hạ độc giết chết mục tiêu', () => {
+  it('Phù thủy không thể dùng bình độc vào Đêm 1 theo luật Werewolf Online', () => {
     const players = new Map<string, Player>();
     players.set('witch', createMockPlayer('witch', 'Phù thủy', 'WITCH', 'VILLAGE'));
     players.set('v1', createMockPlayer('v1', 'Dân', 'VILLAGER', 'VILLAGE'));
@@ -157,6 +157,31 @@ describe('NightResolver - Kỹ năng ban đêm & Thứ tự giải quyết', () 
     ];
 
     const { result, updatedPlayers } = NightResolver.resolveNight(1, players, actions, config, false);
+
+    expect(result.deaths).toHaveLength(0);
+    expect(updatedPlayers.get('v1')?.isAlive).toBe(true);
+    expect(updatedPlayers.get('witch')?.skills.witchPoisonRemaining).toBe(1);
+  });
+
+  it('Phù thủy hạ độc giết chết mục tiêu ở Đêm 2 trở đi', () => {
+    const players = new Map<string, Player>();
+    players.set('witch', createMockPlayer('witch', 'Phù thủy', 'WITCH', 'VILLAGE'));
+    players.set('v1', createMockPlayer('v1', 'Dân', 'VILLAGER', 'VILLAGE'));
+
+    const actions: PlayerAction[] = [
+      {
+        id: 'a1',
+        userId: 'witch',
+        roleId: 'WITCH',
+        type: 'WITCH_POISON',
+        targetId: 'v1',
+        nightNumber: 2,
+        phase: 'NIGHT',
+        timestamp: Date.now(),
+      },
+    ];
+
+    const { result, updatedPlayers } = NightResolver.resolveNight(2, players, actions, config, false);
 
     expect(result.deaths).toHaveLength(1);
     expect(result.deaths[0].player.id).toBe('v1');

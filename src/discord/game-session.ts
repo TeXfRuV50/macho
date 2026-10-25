@@ -11,6 +11,7 @@ import { WerewolfEmbeds } from './embeds';
 import { WerewolfComponents } from './components';
 import { getRoleInfo } from '../engine/roles';
 import { GameWinResult, Player } from '../engine/types';
+import { WerewolfBotAi } from '../engine/bot-ai';
 
 export class GameSession {
   public readonly game: WerewolfGame;
@@ -20,6 +21,7 @@ export class GameSession {
 
   public mainMessageId: string | null = null;
   private timerHandle: NodeJS.Timeout | null = null;
+  private botChatTimers: NodeJS.Timeout[] = [];
   private isProcessingPhaseTransition: boolean = false;
 
   constructor(game: WerewolfGame, db: DatabaseManager, dmManager: DmManager, client: Client) {
@@ -175,6 +177,44 @@ export class GameSession {
   }
 
   /**
+   * Kéo bảng đêm xuống cuối kênh để người chơi dễ bấm kỹ năng
+   */
+  public async repostNightMessage(): Promise<boolean> {
+    if (this.game.phase !== 'NIGHT') return false;
+
+    const channel = await this.getChannel();
+    if (!channel) return false;
+
+    try {
+      if (this.mainMessageId) {
+        try {
+          const oldMsg = await channel.messages.fetch(this.mainMessageId);
+          if (oldMsg) {
+            if (typeof oldMsg.delete === 'function') {
+              await oldMsg.delete();
+            } else if (typeof oldMsg.edit === 'function') {
+              await oldMsg.edit({ components: [] });
+            }
+          }
+        } catch {}
+      }
+
+      const newMsg = await channel.send({
+        embeds: [WerewolfEmbeds.buildNightEmbed(this.game)],
+        components: WerewolfComponents.buildNightControls(this.game),
+      });
+
+      if (newMsg && newMsg.id) {
+        this.mainMessageId = newMsg.id;
+      }
+      return true;
+    } catch (err: any) {
+      console.error(`[GameSession ${this.game.id}] Lỗi kéo bảng đêm xuống:`, err?.message);
+      return false;
+    }
+  }
+
+  /**
    * Bắt đầu ván đấu: Chia vai bí mật và gửi DM cho từng người
    */
   public async start(): Promise<{ success: boolean; message: string }> {
@@ -201,11 +241,14 @@ export class GameSession {
     // Cập nhật bảng điều khiển chính sang giai đoạn phát vai
     await this.updateMainMessage({
       embeds: [WerewolfEmbeds.buildRoleDistributionEmbed(this.game)],
+      components: WerewolfComponents.buildRoleDistributionControls(this.game),
     });
 
     // Gửi vai bí mật riêng tư cho từng người
     let failedCount = 0;
     for (const player of this.game.players.values()) {
+      if (player.isBot) continue;
+
       const roleInfo = getRoleInfo(player.roleId, this.game.customRoles);
       const roleEmbed = WerewolfEmbeds.buildPrivateRoleEmbed(player, roleInfo);
       const confirmRow = WerewolfComponents.buildRoleConfirmButton(this.game.id, player.id);
@@ -237,6 +280,14 @@ export class GameSession {
       return { success: true, message: 'Đã phát vai nhưng có người bị chặn DM, tạm dừng ván.' };
     }
 
+    // Kiểm tra nếu tất cả người chơi đã xác nhận vai (ví dụ: chỉ có bot hoặc ai cũng đã confirm)
+    const allConfirmed = Array.from(this.game.players.values()).every((p) => p.hasConfirmedRole);
+    if (allConfirmed) {
+      this.clearPhaseTimer();
+      await this.advanceToNight();
+      return { success: true, message: 'Tất cả người chơi đã sẵn sàng, bắt đầu ngay Đêm 1!' };
+    }
+
     this.schedulePhaseTimer(this.game.config.timers.roleConfirmSec * 1000, () => {
       this.advanceToNight();
     });
@@ -255,6 +306,7 @@ export class GameSession {
 
     await this.updateMainMessage({
       embeds: [WerewolfEmbeds.buildRoleDistributionEmbed(this.game)],
+      components: WerewolfComponents.buildRoleDistributionControls(this.game),
     });
 
     if (allConfirmed) {
@@ -281,15 +333,16 @@ export class GameSession {
 
       await this.postNewMainMessage({
         embeds: [WerewolfEmbeds.buildNightEmbed(this.game)],
-        components: [],
+        components: WerewolfComponents.buildNightControls(this.game),
       });
 
       // Khóa chat ban đêm cho cả làng và khóa chat riêng cho người đã chết
       await this.lockChannelForNight();
       await this.syncDeadPlayersChatPermissions();
 
-      // Gọi dậy các vai có kỹ năng ban đêm
-      await this.dispatchNightCalls(guild, channel);
+      // Kích hoạt tự động hóa kỹ năng đêm cho Bot
+      WerewolfBotAi.performNightActions(this.game);
+      this.db.saveGame(this.game);
 
       this.schedulePhaseTimer(this.game.config.timers.nightSec * 1000, () => {
         this.advanceToDawn();
@@ -308,7 +361,7 @@ export class GameSession {
     // 1. Thần tình yêu (Đêm 1)
     if (this.game.nightNumber === 1) {
       const cupid = alivePlayers.find((p) => p.roleId === 'CUPID');
-      if (cupid) {
+      if (cupid && !cupid.isBot) {
         const cupidMenus = WerewolfComponents.buildCupidMenu(this.game, cupid.id);
         await this.dmManager.sendPrivate(
           this.client,
@@ -326,7 +379,7 @@ export class GameSession {
 
     // 2. Bảo vệ
     const bodyguard = alivePlayers.find((p) => p.roleId === 'BODYGUARD');
-    if (bodyguard) {
+    if (bodyguard && !bodyguard.isBot) {
       const bgMenus = WerewolfComponents.buildBodyguardMenu(this.game, bodyguard);
       await this.dmManager.sendPrivate(
         this.client,
@@ -343,7 +396,7 @@ export class GameSession {
 
     // 3. Tiên tri
     const seer = alivePlayers.find((p) => p.roleId === 'SEER');
-    if (seer) {
+    if (seer && !seer.isBot) {
       const seerMenus = WerewolfComponents.buildSeerMenu(this.game, seer.id);
       await this.dmManager.sendPrivate(
         this.client,
@@ -360,9 +413,25 @@ export class GameSession {
 
     // 4. Bầy Sói (Bao gồm Sói thường, Sói quỷ, Sói cuồng nộ, Sói trắng)
     const wolves = alivePlayers.filter((p) => p.faction === 'WEREWOLF');
-    const wolfNames = wolves.map((w) => `• <@${w.id}> (${w.name}) - ${getRoleInfo(w.roleId).name}`).join('\n');
 
     for (const wolf of wolves) {
+      if (wolf.isBot) continue;
+
+      // SỬA: Sói trắng không lộ role và các sói chỉ ghi mỗi chữ sói khi làm đồng đội
+      const wolfNames = wolves
+        .map((w) => {
+          if (w.id === wolf.id) {
+            return w.isBot
+              ? `• 🤖 ${w.name} *(Bot)* - 🐺 ${getRoleInfo(w.roleId, this.game.customRoles).name} *(Bạn)*`
+              : `• <@${w.id}> (${w.name}) - 🐺 ${getRoleInfo(w.roleId, this.game.customRoles).name} *(Bạn)*`;
+          } else {
+            return w.isBot
+              ? `• 🤖 ${w.name} *(Bot)* - 🐺 Sói`
+              : `• <@${w.id}> (${w.name}) - 🐺 Sói`;
+          }
+        })
+        .join('\n');
+
       const wolfMenus = WerewolfComponents.buildWolfBiteMenu(this.game, wolf.id);
       await this.dmManager.sendPrivate(
         this.client,
@@ -373,7 +442,7 @@ export class GameSession {
           content:
             `🐺 **[BẦY MA SÓI]**\n` +
             `Đồng đội bầy đàn của bạn:\n${wolfNames}\n\n` +
-            `Hãy chọn mục tiêu cắn xé đêm nay (phiếu cao nhất sẽ là nạn nhân):`,
+            `Hãy chọn mục tiêu cắn xé đêm nay:`,
           components: wolfMenus,
         },
         this.game.id
@@ -382,7 +451,7 @@ export class GameSession {
 
     // 5. Phù thủy
     const witch = alivePlayers.find((p) => p.roleId === 'WITCH');
-    if (witch) {
+    if (witch && !witch.isBot) {
       // Phù thủy nhận thông báo kiểm tra bình thuốc
       const witchControls = WerewolfComponents.buildWitchControls(this.game, witch, null);
       await this.dmManager.sendPrivate(
@@ -404,7 +473,7 @@ export class GameSession {
     // 6. Sói trắng (Đêm chẵn >= 2)
     if (this.game.nightNumber >= 2 && this.game.nightNumber % 2 === 0) {
       const whiteWolf = alivePlayers.find((p) => p.roleId === 'WHITE_WOLF');
-      if (whiteWolf) {
+      if (whiteWolf && !whiteWolf.isBot) {
         const wwMenus = WerewolfComponents.buildWhiteWolfMenu(this.game, whiteWolf.id);
         if (wwMenus.length > 0) {
           await this.dmManager.sendPrivate(
@@ -420,6 +489,88 @@ export class GameSession {
           );
         }
       }
+    }
+
+    // 7. Bác sĩ (Doctor - Werewolf Online)
+    const doctor = alivePlayers.find((p) => p.roleId === 'DOCTOR');
+    if (doctor && !doctor.isBot) {
+      const docMenus = WerewolfComponents.buildDoctorMenu(this.game, doctor);
+      await this.dmManager.sendPrivate(
+        this.client,
+        guild,
+        channel,
+        doctor,
+        {
+          content: '🩺 **[BÁC SĨ]** Hãy chọn một người chơi để cứu chữa/bảo vệ đêm nay:',
+          components: docMenus,
+        },
+        this.game.id
+      );
+    }
+
+    // 8. Thám tử (Detective - Werewolf Online)
+    const detective = alivePlayers.find((p) => p.roleId === 'DETECTIVE');
+    if (detective && !detective.isBot) {
+      const detMenus = WerewolfComponents.buildDetectiveMenu(this.game, detective.id);
+      await this.dmManager.sendPrivate(
+        this.client,
+        guild,
+        channel,
+        detective,
+        {
+          content: '🔍 **[THÁM TỬ]** Hãy chọn đúng 2 người chơi để đối chiếu xem họ **CÙNG PHE** hay **KHÁC PHE**:',
+          components: detMenus,
+        },
+        this.game.id
+      );
+    }
+
+    // 9. Sói tiên tri (Wolf Seer - Werewolf Online)
+    const wolfSeer = alivePlayers.find((p) => p.roleId === 'WOLF_SEER');
+    const aliveWolves = alivePlayers.filter((p) => p.faction === 'WEREWOLF');
+    if (wolfSeer && !wolfSeer.isBot) {
+      if (aliveWolves.length > 1) {
+        const wsMenus = WerewolfComponents.buildWolfSeerMenu(this.game, wolfSeer.id);
+        await this.dmManager.sendPrivate(
+          this.client,
+          guild,
+          channel,
+          wolfSeer,
+          {
+            content: '👁️ **[SÓI TIÊN TRI]** Hãy chọn một người chơi để soi ra **chính xác vai trò** của họ:',
+            components: wsMenus,
+          },
+          this.game.id
+        );
+      } else {
+        await this.dmManager.sendPrivate(
+          this.client,
+          guild,
+          channel,
+          wolfSeer,
+          {
+            content: '👁️ **[SÓI TIÊN TRI]** Bạn là con sói duy nhất còn sống trong bầy! Kỹ năng soi vai trò đã bị vô hiệu hóa.',
+          },
+          this.game.id
+        );
+      }
+    }
+
+    // 10. Kẻ sát nhân (Serial Killer - Werewolf Online)
+    const serialKiller = alivePlayers.find((p) => p.roleId === 'SERIAL_KILLER');
+    if (serialKiller && !serialKiller.isBot) {
+      const skMenus = WerewolfComponents.buildSerialKillerMenu(this.game, serialKiller.id);
+      await this.dmManager.sendPrivate(
+        this.client,
+        guild,
+        channel,
+        serialKiller,
+        {
+          content: '🔪 **[KẺ SÁT NHÂN]** Hãy chọn một người chơi để ra tay hạ sát đêm nay:',
+          components: skMenus,
+        },
+        this.game.id
+      );
     }
   }
 
@@ -443,7 +594,7 @@ export class GameSession {
       for (const inv of dawnResult.investigationResults) {
         const seerPlayer = this.game.players.get(inv.seerId);
         const targetPlayer = this.game.players.get(inv.targetId);
-        if (seerPlayer && targetPlayer) {
+        if (seerPlayer && targetPlayer && !seerPlayer.isBot) {
           const resultText = inv.isWolf
             ? `🐺 **Mục tiêu <@${targetPlayer.id}> (${targetPlayer.name}) THUỘC PHE MA SÓI!**`
             : `🌾 **Mục tiêu <@${targetPlayer.id}> (${targetPlayer.name}) KHÔNG PHẢI là Ma Sói!**`;
@@ -459,10 +610,50 @@ export class GameSession {
         }
       }
 
+      // Gửi kết quả điều tra riêng cho Thám tử nếu có (Detective - Werewolf Online)
+      for (const det of dawnResult.detectiveResults || []) {
+        const detPlayer = this.game.players.get(det.detectiveId);
+        const p1 = this.game.players.get(det.target1Id);
+        const p2 = this.game.players.get(det.target2Id);
+        if (detPlayer && p1 && p2 && !detPlayer.isBot) {
+          const resultText = det.isSameTeam
+            ? `⚖️ **${p1.name}** và **${p2.name}** thuộc **CÙNG MỘT PHE**!`
+            : `⚡ **${p1.name}** và **${p2.name}** thuộc **HAI PHE KHÁC NHAU**!`;
+
+          await this.dmManager.sendPrivate(
+            this.client,
+            guild,
+            channel,
+            detPlayer,
+            { content: `🔍 **[KẾT QUẢ ĐIỀU TRA ĐÊM ${this.game.nightNumber}]**\n${resultText}` },
+            this.game.id
+          );
+        }
+      }
+
+      // Gửi kết quả soi vai riêng cho Sói Tiên Tri nếu có (Wolf Seer - Werewolf Online)
+      for (const ws of dawnResult.wolfSeerResults || []) {
+        const wsPlayer = this.game.players.get(ws.wolfSeerId);
+        const target = this.game.players.get(ws.targetId);
+        if (wsPlayer && target && !wsPlayer.isBot) {
+          const targetRole = getRoleInfo(target.roleId, this.game.customRoles);
+          await this.dmManager.sendPrivate(
+            this.client,
+            guild,
+            channel,
+            wsPlayer,
+            {
+              content: `👁️ **[KẾT QUẢ SOI VAI ĐÊM ${this.game.nightNumber}]**\nMục tiêu **<@${target.id}> (${target.name})** chính là: **${targetRole.name}** (${targetRole.faction === 'WEREWOLF' ? 'Phe Sói' : targetRole.faction === 'VILLAGE' ? 'Phe Dân' : 'Phe Độc lập'})!`,
+            },
+            this.game.id
+          );
+        }
+      }
+
       // Thông báo cho người bị Sói quỷ chuyển hóa (Infected)
       if (dawnResult.newWerewolfId) {
         const infected = this.game.players.get(dawnResult.newWerewolfId);
-        if (infected) {
+        if (infected && !infected.isBot) {
           await this.dmManager.sendPrivate(
             this.client,
             guild,
@@ -483,58 +674,69 @@ export class GameSession {
         const lovers = Array.from(this.game.players.values()).filter((p) => p.loverId);
         if (lovers.length === 2) {
           const [l1, l2] = lovers;
-          await this.dmManager.sendPrivate(
-            this.client,
-            guild,
-            channel,
-            l1,
-            { content: `💘 **[CẶP ĐÔI ĐỊNH MỆNH]** Bạn và <@${l2.id}> (${l2.name}) đã được gắn kết trái tim yêu thương!` },
-            this.game.id
-          );
-          await this.dmManager.sendPrivate(
-            this.client,
-            guild,
-            channel,
-            l2,
-            { content: `💘 **[CẶP ĐÔI ĐỊNH MỆNH]** Bạn và <@${l1.id}> (${l1.name}) đã được gắn kết trái tim yêu thương!` },
-            this.game.id
-          );
+          if (!l1.isBot) {
+            await this.dmManager.sendPrivate(
+              this.client,
+              guild,
+              channel,
+              l1,
+              { content: `💘 **[CẶP ĐÔI ĐỊNH MỆNH]** Bạn và <@${l2.id}> (${l2.name}) đã được gắn kết trái tim yêu thương!` },
+              this.game.id
+            );
+          }
+          if (!l2.isBot) {
+            await this.dmManager.sendPrivate(
+              this.client,
+              guild,
+              channel,
+              l2,
+              { content: `💘 **[CẶP ĐÔI ĐỊNH MỆNH]** Bạn và <@${l1.id}> (${l1.name}) đã được gắn kết trái tim yêu thương!` },
+              this.game.id
+            );
+          }
         }
       }
 
       // Cập nhật thông báo bình minh ra kênh chung ở cuối kênh
       await this.postNewMainMessage({
         embeds: [WerewolfEmbeds.buildDawnEmbed(this.game, dawnResult)],
-        components: [],
+        components: WerewolfComponents.buildDawnControls(this.game, dawnResult),
       });
 
       // Đồng bộ khóa chat cho những người tử trận trong đêm
       await this.syncDeadPlayersChatPermissions();
+
+      // Nếu có Thợ săn tử trận cần bắn súng trả thù
+      if (dawnResult.hunterTriggeredId) {
+        const hunter = this.game.players.get(dawnResult.hunterTriggeredId);
+        if (hunter) {
+          if (hunter.isBot) {
+            const shot = WerewolfBotAi.performHunterShot(this.game, hunter.id);
+            if (shot) {
+              await channel.send(`🎯 **[PHÁT SÚNG THỢ SĂN]** Thợ săn **${hunter.name}** trước khi trút hơi thở cuối cùng đã nổ súng bắn gục **${shot.name}**!`);
+            }
+          } else {
+            const hunterMenus = WerewolfComponents.buildHunterShotMenu(this.game, hunter.id);
+            await this.dmManager.sendPrivate(
+              this.client,
+              guild,
+              channel,
+              hunter,
+              {
+                content: '🎯 **[PHÁT SÚNG THỢ SĂN]** Bạn đã chết nhưng kịp rút súng! Hãy chọn một người để bắn trả thù:',
+                components: hunterMenus,
+              },
+              this.game.id
+            );
+          }
+        }
+      }
 
       // Kiểm tra Thắng/Thua
       const winCheck = this.game.checkWinCondition();
       if (winCheck.winner !== 'NONE') {
         await this.finishGame(winCheck);
         return;
-      }
-
-      // Nếu có Thợ săn tử trận cần bắn súng trả thù
-      if (dawnResult.hunterTriggeredId) {
-        const hunter = this.game.players.get(dawnResult.hunterTriggeredId);
-        if (hunter) {
-          const hunterMenus = WerewolfComponents.buildHunterShotMenu(this.game, hunter.id);
-          await this.dmManager.sendPrivate(
-            this.client,
-            guild,
-            channel,
-            hunter,
-            {
-              content: '🎯 **[PHÁT SÚNG THỢ SĂN]** Bạn đã chết nhưng kịp rút súng! Hãy chọn một người để bắn trả thù:',
-              components: hunterMenus,
-            },
-            this.game.id
-          );
-        }
       }
 
       this.schedulePhaseTimer(this.game.config.timers.dawnSec * 1000, () => {
@@ -559,12 +761,57 @@ export class GameSession {
 
       await this.postNewMainMessage({
         embeds: [WerewolfEmbeds.buildDiscussionEmbed(this.game)],
-        components: [],
+        components: WerewolfComponents.buildDiscussionControls(this.game),
       });
 
       // Mở lại kênh cho dân làng thảo luận, đồng thời khóa riêng người chết
       await this.unlockChannelForDay();
       await this.syncDeadPlayersChatPermissions();
+
+      const guild = await this.getGuild();
+      const channel = await this.getChannel();
+
+      // Gửi quyền nổ súng cho Xạ thủ nếu còn đạn (Gunner - Werewolf Online)
+      if (guild && channel) {
+        const gunners = Array.from(this.game.players.values()).filter(
+          (p) => p.isAlive && p.roleId === 'GUNNER' && (p.skills.gunnerBulletsRemaining ?? 0) > 0
+        );
+        for (const gunner of gunners) {
+          if (!gunner.isBot) {
+            const gunnerMenus = WerewolfComponents.buildGunnerMenu(this.game, gunner);
+            if (gunnerMenus.length > 0) {
+              await this.dmManager.sendPrivate(
+                this.client,
+                guild,
+                channel,
+                gunner,
+                {
+                  content: `🔫 **[XẠ THỦ]** Đã đến ban ngày! Bạn đang có **${gunner.skills.gunnerBulletsRemaining}** viên đạn bạc. Bạn có thể nổ súng bắn hạ một người bất kỳ ngay trong lúc thảo luận:`,
+                  components: gunnerMenus,
+                },
+                this.game.id
+              );
+            }
+          }
+        }
+      }
+
+      // Kích hoạt Bot trò chuyện sinh động trong pha thảo luận
+      this.clearBotChatTimers();
+      const chatMessages = WerewolfBotAi.generateDiscussionChat(this.game);
+      if (channel && chatMessages.length > 0) {
+        for (const item of chatMessages) {
+          const t = setTimeout(async () => {
+            if (this.game.phase !== 'DISCUSSION') return;
+            try {
+              await channel.send(`💬 🤖 **${item.botName}**: ${item.text}`);
+            } catch (err: any) {
+              console.error(`[BotChat Error] Không thể gửi tin nhắn của ${item.botName}:`, err?.message);
+            }
+          }, item.delaySec * 1000);
+          this.botChatTimers.push(t);
+        }
+      }
 
       this.schedulePhaseTimer(this.game.config.timers.discussionSec * 1000, () => {
         this.advanceToVoting();
@@ -581,14 +828,22 @@ export class GameSession {
     if (this.isProcessingPhaseTransition) return;
     this.isProcessingPhaseTransition = true;
     this.clearPhaseTimer();
+    this.clearBotChatTimers();
 
     try {
       this.game.startVoting();
       this.db.saveGame(this.game);
 
+      // Tự động bỏ phiếu cho các người chơi Bot
+      WerewolfBotAi.performDayVotes(this.game);
+      this.db.saveGame(this.game);
+
       const votingControls = WerewolfComponents.buildVotingControls(this.game);
       const aliveVoters = Array.from(this.game.players.values()).filter((p) => p.isAlive && p.canVote);
-      const voterPings = aliveVoters.map((p) => `<@${p.id}>`).join(' ');
+      const humanVoters = aliveVoters.filter((p) => !p.isBot);
+      const voterPings = humanVoters.length > 0
+        ? humanVoters.map((p) => `<@${p.id}>`).join(' ')
+        : '_(Tất cả cử tri là bot ảo)_';
 
       // Gửi tin nhắn mới tinh ở cuối kênh để không bị trôi sau khi thảo luận dài
       await this.postNewMainMessage({
@@ -598,6 +853,30 @@ export class GameSession {
         embeds: [WerewolfEmbeds.buildVotingEmbed(this.game)],
         components: votingControls,
       });
+
+      // Phát ngôn bỏ phiếu của Bot trong kênh (nếu có)
+      const voteComments = WerewolfBotAi.generateVotingComments(this.game);
+      if (voteComments.length > 0) {
+        const channel = await this.getChannel();
+        if (channel) {
+          for (const vc of voteComments) {
+            try {
+              await channel.send(`🗳️ 🤖 **${vc.botName}**: ${vc.text}`);
+            } catch {}
+          }
+        }
+      }
+
+      // Nếu tất cả người chơi còn sống đã bỏ phiếu (ví dụ: chỉ có bot)
+      const votes = this.game.currentPhaseActions.filter((a) => a.type === 'DAY_VOTE' || a.type === 'DAY_VOTE_SKIP');
+      const votedUserIds = new Set(votes.map((v) => v.userId));
+
+      if (votedUserIds.size >= aliveVoters.length) {
+        this.schedulePhaseTimer(2000, () => {
+          this.advanceToResolution();
+        });
+        return;
+      }
 
       this.schedulePhaseTimer(this.game.config.timers.votingSec * 1000, () => {
         this.advanceToResolution();
@@ -622,11 +901,25 @@ export class GameSession {
       await this.updateMainMessage({
         content: null,
         embeds: [WerewolfEmbeds.buildResolutionEmbed(this.game, result)],
-        components: [],
+        components: WerewolfComponents.buildResolutionControls(this.game, result),
       });
 
       // Khóa chat người vừa bị treo cổ (hoặc người yêu chết theo)
       await this.syncDeadPlayersChatPermissions();
+
+      // Nếu có Thợ săn tử trận cần bắn súng trả thù
+      if (result.hunterTriggeredId) {
+        const hunter = this.game.players.get(result.hunterTriggeredId);
+        if (hunter) {
+          if (hunter.isBot) {
+            const shot = WerewolfBotAi.performHunterShot(this.game, hunter.id);
+            const channel = await this.getChannel();
+            if (shot && channel) {
+              await channel.send(`🎯 **[PHÁT SÚNG THỢ SĂN]** Thợ săn **${hunter.name}** bị treo cổ đã nổ súng kéo theo **${shot.name}**!`);
+            }
+          }
+        }
+      }
 
       // Nếu hòa phiếu và được bỏ phiếu lại một lần
       if (result.revoteTriggered) {
@@ -657,6 +950,7 @@ export class GameSession {
    */
   public async finishGame(winResult: GameWinResult): Promise<void> {
     this.clearPhaseTimer();
+    this.clearBotChatTimers();
     this.game.phase = 'FINISHED';
     this.db.saveGame(this.game);
 
@@ -678,6 +972,7 @@ export class GameSession {
    */
   public async cancelGame(reason: string = 'Đã hủy trận'): Promise<void> {
     this.clearPhaseTimer();
+    this.clearBotChatTimers();
     this.game.cancel(reason);
     this.db.saveGame(this.game);
 
@@ -703,6 +998,7 @@ export class GameSession {
     if (!channel || !channel.permissionOverwrites || typeof channel.permissionOverwrites.edit !== 'function') return;
 
     for (const player of this.game.players.values()) {
+      if (player.isBot) continue;
       if (!player.isAlive) {
         try {
           await channel.permissionOverwrites.edit(
@@ -775,6 +1071,7 @@ export class GameSession {
 
     if (typeof channel.permissionOverwrites.delete === 'function') {
       for (const player of this.game.players.values()) {
+        if (player.isBot) continue;
         try {
           await channel.permissionOverwrites.delete(player.id, 'Ma Sói: Ván đấu kết thúc');
         } catch {}
@@ -788,6 +1085,13 @@ export class GameSession {
   private schedulePhaseTimer(delayMs: number, callback: () => void): void {
     this.clearPhaseTimer();
     this.timerHandle = setTimeout(callback, Math.max(1000, delayMs));
+  }
+
+  public clearBotChatTimers(): void {
+    for (const t of this.botChatTimers) {
+      clearTimeout(t);
+    }
+    this.botChatTimers = [];
   }
 
   public clearPhaseTimer(): void {

@@ -3,11 +3,25 @@ import { WerewolfGame } from '../engine/game';
 import { GameWinResult, NightResolutionResult, Player, RoleId } from '../engine/types';
 import { getRoleInfo, RoleInfo, STANDARD_ROLES } from '../engine/roles';
 
+export function formatPlayerName(player: Player, withMention: boolean = true): string {
+  if (player.isBot) {
+    return `🤖 **${player.name}** *(Bot)*`;
+  }
+  return withMention ? `<@${player.id}> (${player.name})` : player.name;
+}
+
+export function formatPlayerTag(player: Player): string {
+  if (player.isBot) {
+    return `🤖 **${player.name}**`;
+  }
+  return `<@${player.id}>`;
+}
+
 export class WerewolfEmbeds {
   public static buildLobbyEmbed(game: WerewolfGame): EmbedBuilder {
     const players = Array.from(game.players.values());
     const playerList = players.length > 0
-      ? players.map((p, idx) => `**${idx + 1}.** <@${p.id}> (${p.name})`).join('\n')
+      ? players.map((p, idx) => `**${idx + 1}.** ${formatPlayerName(p)}`).join('\n')
       : '_Chưa có người chơi nào tham gia._';
 
     const rolesSummary = Object.entries(game.config.roles)
@@ -53,13 +67,13 @@ export class WerewolfEmbeds {
     if (players.length < 4) {
       embed.addFields({
         name: '⚠️ Trạng thái phòng',
-        value: `Cần tối thiểu 4 người chơi để bắt đầu trận Ma Sói. Hiện tại đang có **${players.length}** người.`,
+        value: `Cần tối thiểu 4 người chơi để bắt đầu trận Ma Sói (hiện có **${players.length}** người).\n💡 *Bạn có thể bấm **"+1 Bot"** hoặc **"Điền đủ Bot"** để thêm bot ảo chơi cùng!*`,
         inline: false,
       });
     }
 
     embed
-      .setFooter({ text: 'Bấm "Tham gia" để vào phòng. Cần tối thiểu 4 người để bắt đầu. Chỉ chủ phòng mới có thể bắt đầu hoặc sửa cấu hình.' })
+      .setFooter({ text: 'Bấm "Tham gia" để vào phòng hoặc "+1 Bot" / "Điền đủ Bot" để thêm bot chơi cùng!' })
       .setTimestamp();
 
     return embed;
@@ -117,14 +131,14 @@ export class WerewolfEmbeds {
       .setTitle(`🌙 ĐÊM THỨ ${game.nightNumber} ĐÃ BUÔNG XUỐNG...`)
       .setDescription(
         `Màn đêm u tối bao phủ ngôi làng. Mọi người đều chìm sâu vào giấc ngủ.\n` +
-        `Những kẻ mang kỹ năng ban đêm hãy kiểm tra tin nhắn riêng để nhận nhiệm vụ!\n\n` +
+        `👉 Người mang kỹ năng hãy bấm nút **"🌙 Dùng kỹ năng đêm"** bên dưới để thực hiện (hoàn toàn riêng tư, chỉ một mình bạn thấy).\n\n` +
         `⏳ **Thời gian còn lại:** <t:${Math.floor(game.phaseDeadline / 1000)}:R>`
       )
       .addFields({
         name: `👥 Người còn sống (${alivePlayers.length})`,
-        value: alivePlayers.map((p) => `• <@${p.id}>`).join(' ') || '_Không có ai_',
+        value: alivePlayers.map((p) => `• ${formatPlayerTag(p)}`).join(' ') || '_Không có ai_',
       })
-      .setFooter({ text: 'Quản trò đang bí mật gọi các vai thức dậy...' });
+      .setFooter({ text: 'Bấm các nút bên dưới để dùng kỹ năng hoặc xem lại vai của bạn (Bí mật)' });
   }
 
   public static buildDawnEmbed(game: WerewolfGame, result: NightResolutionResult): EmbedBuilder {
@@ -142,21 +156,23 @@ export class WerewolfEmbeds {
         else if (d.reason === 'WHITE_WOLF') reasonText = 'bị xé xác bí ẩn';
         else if (d.reason === 'HEARTBREAK') reasonText = 'chết vì đau đớn khi người yêu qua đời';
         else if (d.reason === 'HUNTER_SHOT') reasonText = 'bị đạn thợ săn bắn gục';
+        else if (d.reason === 'SERIAL_KILLER') reasonText = 'bị Kẻ sát nhân đâm chết dã man';
 
         const roleReveal = game.config.rules.revealRoleOnDeath
           ? ` (Vai: **${getRoleInfo(d.player.roleId, game.customRoles).name}**)`
           : '';
 
-        return `☠️ <@${d.player.id}> (${d.player.name}) đã ${reasonText}!${roleReveal}`;
+        return `☠️ ${formatPlayerName(d.player)} đã ${reasonText}!${roleReveal}`;
       });
 
       embed.setDescription(`Trời đã sáng, nhưng ngôi làng nhuốm màu tang thương:\n\n${deathLines.join('\n')}`);
     }
 
     if (result.hunterTriggeredId) {
+      const hunter = game.players.get(result.hunterTriggeredId);
       embed.addFields({
         name: '🔫 Khẩu súng săn lên nòng!',
-        value: `<@${result.hunterTriggeredId}> đã tử trận và chuẩn bị nổ súng trả thù!`,
+        value: `${hunter ? formatPlayerTag(hunter) : result.hunterTriggeredId} đã tử trận và chuẩn bị nổ súng trả thù!`,
       });
     }
 
@@ -175,7 +191,7 @@ export class WerewolfEmbeds {
       )
       .addFields({
         name: `👥 Người còn sống sót (${alivePlayers.length})`,
-        value: alivePlayers.map((p) => `• <@${p.id}>`).join(' ') || '_Không có ai_',
+        value: alivePlayers.map((p) => `• ${formatPlayerTag(p)}`).join(' ') || '_Không có ai_',
       })
       .setFooter({ text: 'Hãy thảo luận sôi nổi và quan sát kỹ từng cử chỉ của người khác!' });
   }
@@ -188,7 +204,7 @@ export class WerewolfEmbeds {
     const voterList = aliveVoters
       .map((p) => {
         const hasVoted = votedUserIds.has(p.id);
-        return `${hasVoted ? '✅' : '⏳'} <@${p.id}>`;
+        return `${hasVoted ? '✅' : '⏳'} ${formatPlayerTag(p)}`;
       })
       .join('  ');
 
@@ -240,7 +256,7 @@ export class WerewolfEmbeds {
         .setColor(0x3498db)
         .setTitle('🤪 THẰNG NGỐC ĐÃ LỘ DIỆN!')
         .setDescription(
-          `Người bị đưa lên giàn treo cổ là <@${result.lynchedPlayer.id}> - **Thằng ngốc** của làng!\n` +
+          `Người bị đưa lên giàn treo cổ là ${formatPlayerTag(result.lynchedPlayer!)} - **Thằng ngốc** của làng!\n` +
           `Dân làng nhận ra án oan nên tha mạng cho Thằng ngốc. Từ nay Thằng ngốc tiếp tục sống nhưng bị tước vĩnh viễn quyền bỏ phiếu!`
         );
     }
@@ -250,7 +266,7 @@ export class WerewolfEmbeds {
         .setColor(0x9b59b6)
         .setTitle('🎭 KẺ CHÁN ĐỜI ĐÃ ĐẠT ĐƯỢC ƯỚC NGUYỆN!')
         .setDescription(
-          `Cả làng đã mắc bẫy! <@${result.lynchedPlayer.id}> chính là **Kẻ chán đời (Tanner)**!\n` +
+          `Cả làng đã mắc bẫy! ${formatPlayerTag(result.lynchedPlayer!)} chính là **Kẻ chán đời (Tanner)**!\n` +
           `Bằng việc bị dân làng treo cổ, Kẻ chán đời giành CHIẾN THẮNG ĐỘC LẬP!`
         );
     }
@@ -263,7 +279,7 @@ export class WerewolfEmbeds {
       .setColor(0xc0392b)
       .setTitle('⚰️ DÂN LÀNG ĐÃ TREO CỔ MỘT NGƯỜI')
       .setDescription(
-        `<@${result.lynchedPlayer.id}> (${result.lynchedPlayer.name}) đã bị treo cổ theo phán quyết của dân làng!${roleReveal}`
+        `${formatPlayerName(result.lynchedPlayer)} đã bị treo cổ theo phán quyết của dân làng!${roleReveal}`
       );
   }
 
@@ -289,8 +305,8 @@ export class WerewolfEmbeds {
       .map((p) => {
         const info = getRoleInfo(p.roleId, game.customRoles);
         const status = p.isAlive ? '🟢 Còn sống' : `☠️ Đã chết (${p.deathReason})`;
-        const loverStr = p.loverId ? ` [💘 Người yêu: <@${p.loverId}>]` : '';
-        return `• <@${p.id}> (${p.name}): **${info.name}** - ${status}${loverStr}`;
+        const loverStr = p.loverId ? ` [💘 Người yêu: ${formatPlayerTag(game.players.get(p.loverId)!)}]` : '';
+        return `• ${formatPlayerName(p)}: **${info.name}** - ${status}${loverStr}`;
       })
       .join('\n');
 
@@ -351,12 +367,12 @@ export class WerewolfEmbeds {
       .addFields(
         {
           name: `🟢 Người chơi còn sống (${alivePlayers.length})`,
-          value: alivePlayers.map((p) => `• <@${p.id}> (${p.name})`).join('\n') || '_Không có ai_',
+          value: alivePlayers.map((p) => `• ${formatPlayerName(p)}`).join('\n') || '_Không có ai_',
           inline: true,
         },
         {
           name: `☠️ Người đã tử trận (${deadPlayers.length})`,
-          value: deadPlayers.map((p) => `• <@${p.id}> (${p.name})`).join('\n') || '_Chưa có ai tử trận_',
+          value: deadPlayers.map((p) => `• ${formatPlayerName(p)} (Chết: ${p.deathReason})`).join('\n') || '_Chưa có ai tử trận_',
           inline: true,
         }
       )
@@ -375,6 +391,9 @@ export class WerewolfEmbeds {
             '`/start [players]` : Tạo sảnh chờ mới (cần tối thiểu 4 người chơi để bắt đầu), có thể gắn kèm danh sách mention (VD: `/start players:"@An @Binh"`)\n' +
             '`/add @user` : Thêm người chơi vào sảnh chờ (chỉ chủ phòng)\n' +
             '`/remove @user` : Xóa người chơi khỏi sảnh chờ (chỉ chủ phòng)\n' +
+            '`/addbot [count]` : Thêm bot ảo vào sảnh chờ để đủ số lượng\n' +
+            '`/fillbots [target]` : Tự động điền bot vào sảnh cho đủ người bắt đầu ván\n' +
+            '`/clearbots` : Xóa toàn bộ bot ảo khỏi sảnh chờ\n' +
             '`/custom` : Mở giao diện tùy chỉnh đội hình vai trò, thời gian và luật chơi (tối thiểu 4 người)\n' +
             '`/pause`, `/resume`, `/stop` : Tạm dừng, tiếp tục hoặc hủy ván đấu (có xác nhận)',
         },

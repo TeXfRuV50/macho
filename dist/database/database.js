@@ -51,6 +51,7 @@ class DatabaseManager {
         skills_json TEXT NOT NULL,
         has_confirmed_role INTEGER NOT NULL DEFAULT 0,
         joined_at INTEGER NOT NULL,
+        is_bot INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (game_id, user_id)
       );
 
@@ -88,6 +89,12 @@ class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_actions_game ON actions (game_id);
       CREATE INDEX IF NOT EXISTS idx_presets_guild ON presets (guild_id);
     `);
+        try {
+            this.db.exec(`ALTER TABLE players ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0;`);
+        }
+        catch {
+            // Đã có cột is_bot từ trước
+        }
     }
     /**
      * Lưu hoặc cập nhật thông tin game và players vào SQLite
@@ -120,8 +127,8 @@ class DatabaseManager {
         upsertGame.run(game.id, game.guildId, game.channelId, game.hostId, game.phase, game.dayNumber, game.nightNumber, game.phaseDeadline, configJson, stateJson, now, now);
         // Lưu players
         const upsertPlayer = this.db.prepare(`
-      INSERT INTO players (game_id, user_id, name, role_id, original_role_id, faction, is_alive, can_vote, death_reason, death_night, death_phase, lover_id, skills_json, has_confirmed_role, joined_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO players (game_id, user_id, name, role_id, original_role_id, faction, is_alive, can_vote, death_reason, death_night, death_phase, lover_id, skills_json, has_confirmed_role, joined_at, is_bot)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(game_id, user_id) DO UPDATE SET
         name = excluded.name,
         role_id = excluded.role_id,
@@ -134,10 +141,11 @@ class DatabaseManager {
         death_phase = excluded.death_phase,
         lover_id = excluded.lover_id,
         skills_json = excluded.skills_json,
-        has_confirmed_role = excluded.has_confirmed_role
+        has_confirmed_role = excluded.has_confirmed_role,
+        is_bot = excluded.is_bot
     `);
         for (const p of game.players.values()) {
-            upsertPlayer.run(game.id, p.id, p.name, p.roleId, p.originalRoleId, p.faction, p.isAlive ? 1 : 0, p.canVote ? 1 : 0, p.deathReason || null, p.deathNight || null, p.deathPhase || null, p.loverId || null, JSON.stringify(p.skills), p.hasConfirmedRole ? 1 : 0, p.joinedAt);
+            upsertPlayer.run(game.id, p.id, p.name, p.roleId, p.originalRoleId, p.faction, p.isAlive ? 1 : 0, p.canVote ? 1 : 0, p.deathReason || null, p.deathNight || null, p.deathPhase || null, p.loverId || null, JSON.stringify(p.skills), p.hasConfirmedRole ? 1 : 0, p.joinedAt, p.isBot ? 1 : 0);
         }
     }
     /**
@@ -213,6 +221,7 @@ class DatabaseManager {
                 faction: pr.faction,
                 isAlive: pr.is_alive === 1,
                 canVote: pr.can_vote === 1,
+                isBot: pr.is_bot === 1 || pr.user_id.startsWith('bot_'),
                 deathReason: pr.death_reason || undefined,
                 deathNight: pr.death_night || undefined,
                 deathPhase: pr.death_phase || undefined,

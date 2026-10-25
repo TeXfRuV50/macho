@@ -1,13 +1,27 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WerewolfEmbeds = void 0;
+exports.formatPlayerName = formatPlayerName;
+exports.formatPlayerTag = formatPlayerTag;
 const discord_js_1 = require("discord.js");
 const roles_1 = require("../engine/roles");
+function formatPlayerName(player, withMention = true) {
+    if (player.isBot) {
+        return `🤖 **${player.name}** *(Bot)*`;
+    }
+    return withMention ? `<@${player.id}> (${player.name})` : player.name;
+}
+function formatPlayerTag(player) {
+    if (player.isBot) {
+        return `🤖 **${player.name}**`;
+    }
+    return `<@${player.id}>`;
+}
 class WerewolfEmbeds {
     static buildLobbyEmbed(game) {
         const players = Array.from(game.players.values());
         const playerList = players.length > 0
-            ? players.map((p, idx) => `**${idx + 1}.** <@${p.id}> (${p.name})`).join('\n')
+            ? players.map((p, idx) => `**${idx + 1}.** ${formatPlayerName(p)}`).join('\n')
             : '_Chưa có người chơi nào tham gia._';
         const rolesSummary = Object.entries(game.config.roles)
             .filter(([_, count]) => count > 0)
@@ -42,12 +56,12 @@ class WerewolfEmbeds {
         if (players.length < 4) {
             embed.addFields({
                 name: '⚠️ Trạng thái phòng',
-                value: `Cần tối thiểu 4 người chơi để bắt đầu trận Ma Sói. Hiện tại đang có **${players.length}** người.`,
+                value: `Cần tối thiểu 4 người chơi để bắt đầu trận Ma Sói (hiện có **${players.length}** người).\n💡 *Bạn có thể bấm **"+1 Bot"** hoặc **"Điền đủ Bot"** để thêm bot ảo chơi cùng!*`,
                 inline: false,
             });
         }
         embed
-            .setFooter({ text: 'Bấm "Tham gia" để vào phòng. Cần tối thiểu 4 người để bắt đầu. Chỉ chủ phòng mới có thể bắt đầu hoặc sửa cấu hình.' })
+            .setFooter({ text: 'Bấm "Tham gia" để vào phòng hoặc "+1 Bot" / "Điền đủ Bot" để thêm bot chơi cùng!' })
             .setTimestamp();
         return embed;
     }
@@ -90,13 +104,13 @@ class WerewolfEmbeds {
             .setColor(0x1a1c23)
             .setTitle(`🌙 ĐÊM THỨ ${game.nightNumber} ĐÃ BUÔNG XUỐNG...`)
             .setDescription(`Màn đêm u tối bao phủ ngôi làng. Mọi người đều chìm sâu vào giấc ngủ.\n` +
-            `Những kẻ mang kỹ năng ban đêm hãy kiểm tra tin nhắn riêng để nhận nhiệm vụ!\n\n` +
+            `👉 Người mang kỹ năng hãy bấm nút **"🌙 Dùng kỹ năng đêm"** bên dưới để thực hiện (hoàn toàn riêng tư, chỉ một mình bạn thấy).\n\n` +
             `⏳ **Thời gian còn lại:** <t:${Math.floor(game.phaseDeadline / 1000)}:R>`)
             .addFields({
             name: `👥 Người còn sống (${alivePlayers.length})`,
-            value: alivePlayers.map((p) => `• <@${p.id}>`).join(' ') || '_Không có ai_',
+            value: alivePlayers.map((p) => `• ${formatPlayerTag(p)}`).join(' ') || '_Không có ai_',
         })
-            .setFooter({ text: 'Quản trò đang bí mật gọi các vai thức dậy...' });
+            .setFooter({ text: 'Bấm các nút bên dưới để dùng kỹ năng hoặc xem lại vai của bạn (Bí mật)' });
     }
     static buildDawnEmbed(game, result) {
         const embed = new discord_js_1.EmbedBuilder()
@@ -117,17 +131,20 @@ class WerewolfEmbeds {
                     reasonText = 'chết vì đau đớn khi người yêu qua đời';
                 else if (d.reason === 'HUNTER_SHOT')
                     reasonText = 'bị đạn thợ săn bắn gục';
+                else if (d.reason === 'SERIAL_KILLER')
+                    reasonText = 'bị Kẻ sát nhân đâm chết dã man';
                 const roleReveal = game.config.rules.revealRoleOnDeath
                     ? ` (Vai: **${(0, roles_1.getRoleInfo)(d.player.roleId, game.customRoles).name}**)`
                     : '';
-                return `☠️ <@${d.player.id}> (${d.player.name}) đã ${reasonText}!${roleReveal}`;
+                return `☠️ ${formatPlayerName(d.player)} đã ${reasonText}!${roleReveal}`;
             });
             embed.setDescription(`Trời đã sáng, nhưng ngôi làng nhuốm màu tang thương:\n\n${deathLines.join('\n')}`);
         }
         if (result.hunterTriggeredId) {
+            const hunter = game.players.get(result.hunterTriggeredId);
             embed.addFields({
                 name: '🔫 Khẩu súng săn lên nòng!',
-                value: `<@${result.hunterTriggeredId}> đã tử trận và chuẩn bị nổ súng trả thù!`,
+                value: `${hunter ? formatPlayerTag(hunter) : result.hunterTriggeredId} đã tử trận và chuẩn bị nổ súng trả thù!`,
             });
         }
         return embed;
@@ -141,7 +158,7 @@ class WerewolfEmbeds {
             `⏳ **Thời gian thảo luận:** <t:${Math.floor(game.phaseDeadline / 1000)}:R>`)
             .addFields({
             name: `👥 Người còn sống sót (${alivePlayers.length})`,
-            value: alivePlayers.map((p) => `• <@${p.id}>`).join(' ') || '_Không có ai_',
+            value: alivePlayers.map((p) => `• ${formatPlayerTag(p)}`).join(' ') || '_Không có ai_',
         })
             .setFooter({ text: 'Hãy thảo luận sôi nổi và quan sát kỹ từng cử chỉ của người khác!' });
     }
@@ -152,7 +169,7 @@ class WerewolfEmbeds {
         const voterList = aliveVoters
             .map((p) => {
             const hasVoted = votedUserIds.has(p.id);
-            return `${hasVoted ? '✅' : '⏳'} <@${p.id}>`;
+            return `${hasVoted ? '✅' : '⏳'} ${formatPlayerTag(p)}`;
         })
             .join('  ');
         return new discord_js_1.EmbedBuilder()
@@ -186,14 +203,14 @@ class WerewolfEmbeds {
             return embed
                 .setColor(0x3498db)
                 .setTitle('🤪 THẰNG NGỐC ĐÃ LỘ DIỆN!')
-                .setDescription(`Người bị đưa lên giàn treo cổ là <@${result.lynchedPlayer.id}> - **Thằng ngốc** của làng!\n` +
+                .setDescription(`Người bị đưa lên giàn treo cổ là ${formatPlayerTag(result.lynchedPlayer)} - **Thằng ngốc** của làng!\n` +
                 `Dân làng nhận ra án oan nên tha mạng cho Thằng ngốc. Từ nay Thằng ngốc tiếp tục sống nhưng bị tước vĩnh viễn quyền bỏ phiếu!`);
         }
         if (result.tannerWon) {
             return embed
                 .setColor(0x9b59b6)
                 .setTitle('🎭 KẺ CHÁN ĐỜI ĐÃ ĐẠT ĐƯỢC ƯỚC NGUYỆN!')
-                .setDescription(`Cả làng đã mắc bẫy! <@${result.lynchedPlayer.id}> chính là **Kẻ chán đời (Tanner)**!\n` +
+                .setDescription(`Cả làng đã mắc bẫy! ${formatPlayerTag(result.lynchedPlayer)} chính là **Kẻ chán đời (Tanner)**!\n` +
                 `Bằng việc bị dân làng treo cổ, Kẻ chán đời giành CHIẾN THẮNG ĐỘC LẬP!`);
         }
         const roleReveal = game.config.rules.revealRoleOnDeath
@@ -202,7 +219,7 @@ class WerewolfEmbeds {
         return embed
             .setColor(0xc0392b)
             .setTitle('⚰️ DÂN LÀNG ĐÃ TREO CỔ MỘT NGƯỜI')
-            .setDescription(`<@${result.lynchedPlayer.id}> (${result.lynchedPlayer.name}) đã bị treo cổ theo phán quyết của dân làng!${roleReveal}`);
+            .setDescription(`${formatPlayerName(result.lynchedPlayer)} đã bị treo cổ theo phán quyết của dân làng!${roleReveal}`);
     }
     static buildGameOverEmbed(game, winResult) {
         let color = 0x2ecc71;
@@ -227,8 +244,8 @@ class WerewolfEmbeds {
             .map((p) => {
             const info = (0, roles_1.getRoleInfo)(p.roleId, game.customRoles);
             const status = p.isAlive ? '🟢 Còn sống' : `☠️ Đã chết (${p.deathReason})`;
-            const loverStr = p.loverId ? ` [💘 Người yêu: <@${p.loverId}>]` : '';
-            return `• <@${p.id}> (${p.name}): **${info.name}** - ${status}${loverStr}`;
+            const loverStr = p.loverId ? ` [💘 Người yêu: ${formatPlayerTag(game.players.get(p.loverId))}]` : '';
+            return `• ${formatPlayerName(p)}: **${info.name}** - ${status}${loverStr}`;
         })
             .join('\n');
         return new discord_js_1.EmbedBuilder()
@@ -272,11 +289,11 @@ class WerewolfEmbeds {
             `• **Thời gian còn lại:** <t:${Math.floor(game.phaseDeadline / 1000)}:R>`)
             .addFields({
             name: `🟢 Người chơi còn sống (${alivePlayers.length})`,
-            value: alivePlayers.map((p) => `• <@${p.id}> (${p.name})`).join('\n') || '_Không có ai_',
+            value: alivePlayers.map((p) => `• ${formatPlayerName(p)}`).join('\n') || '_Không có ai_',
             inline: true,
         }, {
             name: `☠️ Người đã tử trận (${deadPlayers.length})`,
-            value: deadPlayers.map((p) => `• <@${p.id}> (${p.name})`).join('\n') || '_Chưa có ai tử trận_',
+            value: deadPlayers.map((p) => `• ${formatPlayerName(p)} (Chết: ${p.deathReason})`).join('\n') || '_Chưa có ai tử trận_',
             inline: true,
         })
             .setFooter({ text: 'Thông tin vai bí mật luôn được giữ kín an toàn.' });
@@ -291,6 +308,9 @@ class WerewolfEmbeds {
             value: '`/start [players]` : Tạo sảnh chờ mới (cần tối thiểu 4 người chơi để bắt đầu), có thể gắn kèm danh sách mention (VD: `/start players:"@An @Binh"`)\n' +
                 '`/add @user` : Thêm người chơi vào sảnh chờ (chỉ chủ phòng)\n' +
                 '`/remove @user` : Xóa người chơi khỏi sảnh chờ (chỉ chủ phòng)\n' +
+                '`/addbot [count]` : Thêm bot ảo vào sảnh chờ để đủ số lượng\n' +
+                '`/fillbots [target]` : Tự động điền bot vào sảnh cho đủ người bắt đầu ván\n' +
+                '`/clearbots` : Xóa toàn bộ bot ảo khỏi sảnh chờ\n' +
                 '`/custom` : Mở giao diện tùy chỉnh đội hình vai trò, thời gian và luật chơi (tối thiểu 4 người)\n' +
                 '`/pause`, `/resume`, `/stop` : Tạm dừng, tiếp tục hoặc hủy ván đấu (có xác nhận)',
         }, {

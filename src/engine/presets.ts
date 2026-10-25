@@ -78,9 +78,31 @@ export const PRESET_ADVANCED: Preset = {
   },
 };
 
+export const PRESET_WOLVESVILLE: Preset = {
+  id: 'wolvesville',
+  name: 'Wolvesville (Werewolf Online)',
+  description: 'Preset theo chuẩn Werewolf Online: Sói thường, Sói tiên tri, Bác sĩ, Thám tử, Xạ thủ, Kẻ khờ, Kẻ sát nhân.',
+  minPlayers: 6,
+  maxPlayers: 25,
+  config: {
+    ...DEFAULT_CONFIG,
+    roles: {
+      WEREWOLF: 1,
+      WOLF_SEER: 1,
+      DOCTOR: 1,
+      DETECTIVE: 1,
+      GUNNER: 1,
+      FOOL: 1,
+      SERIAL_KILLER: 1,
+      VILLAGER: 1,
+    },
+  },
+};
+
 export const BUILTIN_PRESETS: Record<string, Preset> = {
   basic: PRESET_BASIC,
   advanced: PRESET_ADVANCED,
+  wolvesville: PRESET_WOLVESVILLE,
 };
 
 /**

@@ -10,6 +10,7 @@ export interface Preset {
 export declare const DEFAULT_CONFIG: GameConfig;
 export declare const PRESET_BASIC: Preset;
 export declare const PRESET_ADVANCED: Preset;
+export declare const PRESET_WOLVESVILLE: Preset;
 export declare const BUILTIN_PRESETS: Record<string, Preset>;
 /**
  * Tự động tính toán số Dân làng để tổng số vai vừa khít với số người chơi trong phòng.

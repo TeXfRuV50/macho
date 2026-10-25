@@ -12,6 +12,10 @@ export declare class InteractionHandler {
     getSession(channelId: string): GameSession | undefined;
     removeSession(channelId: string): void;
     /**
+     * Trả lời tương tác an toàn, tránh lỗi 10062 (Unknown interaction) và không làm sập bot
+     */
+    safeReply(interaction: any, options: any): Promise<void>;
+    /**
      * Bộ điều phối xử lý tương tác chính của Discord
      */
     handleInteraction(interaction: Interaction): Promise<void>;

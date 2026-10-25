@@ -28,9 +28,29 @@ export declare class WerewolfGame {
     } | null;
     logs: string[];
     constructor(id: string, guildId: string, channelId: string, hostId: string, customConfig?: GameConfig);
-    addPlayer(userId: string, name: string): {
+    static readonly BOT_NAMES: string[];
+    addPlayer(userId: string, name: string, isBot?: boolean): {
         success: boolean;
         message: string;
+    };
+    addBotPlayer(customName?: string): {
+        success: boolean;
+        message: string;
+        botId?: string;
+    };
+    fillBots(targetCount?: number): {
+        success: boolean;
+        message: string;
+        addedCount: number;
+    };
+    removeBotPlayer(): {
+        success: boolean;
+        message: string;
+    };
+    clearBots(): {
+        success: boolean;
+        message: string;
+        removedCount: number;
     };
     removePlayer(userId: string): {
         success: boolean;
@@ -61,6 +81,7 @@ export declare class WerewolfGame {
         lynchedPlayer: Player | null;
         idiotSurvived: boolean;
         tannerWon: boolean;
+        hunterTriggeredId: string | null;
         isTie: boolean;
         revoteTriggered: boolean;
         voteCounts: Record<string, number>;
@@ -69,6 +90,21 @@ export declare class WerewolfGame {
         success: boolean;
         message: string;
     };
+    /**
+     * Kiểm tra xem đã có bất kỳ con sói nào chết trong ván đấu hay chưa.
+     * Bao gồm cả Sói thường, Sói quỷ, Sói cuồng nộ, Sói tiên tri, Sói trắng, Sói trùm...
+     */
+    hasAnyWolfDied(): boolean;
+    /**
+     * Sói Trùm có đang kích hoạt khả năng cắn 2 người hay không:
+     * Có ít nhất 1 Sói Trùm còn sống VÀ chưa có con sói nào chết.
+     */
+    isAlphaWolfActive(): boolean;
+    /**
+     * Tổng hợp số phiếu cắn hiện tại của bầy sói trong đêm này.
+     * Trả về Map<targetId, voteCount>.
+     */
+    getWolfVoteTally(): Map<string, number>;
     checkWinCondition(): GameWinResult;
     pause(): {
         success: boolean;

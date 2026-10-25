@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NightResolver = void 0;
+const roles_1 = require("./roles");
 class NightResolver {
     /**
      * Xử lý toàn bộ các hành động trong đêm theo đúng thứ tự logic đã được định nghĩa.
@@ -13,8 +14,14 @@ class NightResolver {
         }
         const logs = [];
         const investigationResults = [];
+        const detectiveResults = [];
+        const wolfSeerResults = [];
         const deaths = [];
         let wolfVictimId = null;
+        let wolfVictimId2 = null;
+        let wolfVictimIds = [];
+        let serialKillerVictimId = null;
+        let wasSerialKillerImmune = false;
         let wasProtected = false;
         let wasHealed = false;
         let wasInfected = false;
@@ -34,8 +41,9 @@ class NightResolver {
                 }
             }
         }
-        // 2. Bảo vệ: Chọn mục tiêu bảo vệ
+        // 2. Bảo vệ & Bác sĩ: Chọn mục tiêu bảo vệ
         const bodyguardActions = actions.filter((a) => a.type === 'BODYGUARD_PROTECT');
+        const doctorActions = actions.filter((a) => a.type === 'DOCTOR_PROTECT');
         const protectedPlayerIds = new Set();
         for (const act of bodyguardActions) {
             const bg = updatedPlayers.get(act.userId);
@@ -58,6 +66,33 @@ class NightResolver {
             bg.skills.lastProtectedTargetId = targetId;
             logs.push(`Bảo vệ đã che chắn cho mục tiêu.`);
         }
+        for (const act of doctorActions) {
+            const doc = updatedPlayers.get(act.userId);
+            if (!doc || !doc.isAlive)
+                continue;
+            const targetId = act.targetId;
+            if (!targetId)
+                continue;
+            if (doc.skills.doctorLastProtectedTargetId === targetId) {
+                logs.push(`Bác sĩ ${doc.name} không thể bảo vệ cùng một người 2 đêm liên tiếp.`);
+                continue;
+            }
+            protectedPlayerIds.add(targetId);
+            doc.skills.doctorLastProtectedTargetId = targetId;
+            logs.push(`Bác sĩ ${doc.name} đã chữa trị bảo hộ mục tiêu khỏi cái chết.`);
+        }
+        // Kiểm tra trạng thái kích hoạt của Sói Trùm:
+        // Có ít nhất 1 Sói Trùm còn sống VÀ chưa có bất kỳ con sói nào chết trước đêm này
+        const hasAnyWolfDied = Array.from(players.values()).some((p) => !p.isAlive &&
+            (p.faction === 'WEREWOLF' ||
+                p.originalRoleId === 'ALPHA_WOLF' ||
+                p.originalRoleId === 'WEREWOLF' ||
+                p.originalRoleId === 'DEMON_WOLF' ||
+                p.originalRoleId === 'BERSERK_WOLF' ||
+                p.originalRoleId === 'WOLF_SEER' ||
+                p.originalRoleId === 'WHITE_WOLF'));
+        const hasAliveAlphaWolf = Array.from(players.values()).some((p) => p.isAlive && p.roleId === 'ALPHA_WOLF');
+        const isAlphaWolfActive = hasAliveAlphaWolf && !hasAnyWolfDied;
         // 3. Quyết định mục tiêu bị Sói cắn (Tổng hợp vote của bầy sói)
         const wolfVotes = actions.filter((a) => a.type === 'WOLF_VOTE');
         const voteCounts = new Map();
@@ -66,41 +101,96 @@ class NightResolver {
             // Chỉ thành viên phe sói còn sống mới được vote cắn
             if (!wolf || !wolf.isAlive || wolf.faction !== 'WEREWOLF')
                 continue;
-            if (!vote.targetId)
-                continue;
-            const target = updatedPlayers.get(vote.targetId);
-            if (!target || !target.isAlive)
-                continue;
-            voteCounts.set(vote.targetId, (voteCounts.get(vote.targetId) || 0) + 1);
+            if (vote.targetId) {
+                const target = updatedPlayers.get(vote.targetId);
+                if (target && target.isAlive) {
+                    voteCounts.set(vote.targetId, (voteCounts.get(vote.targetId) || 0) + 1);
+                }
+            }
+            if (vote.secondaryTargetId && isAlphaWolfActive) {
+                const target2 = updatedPlayers.get(vote.secondaryTargetId);
+                if (target2 && target2.isAlive && target2.id !== vote.targetId) {
+                    voteCounts.set(vote.secondaryTargetId, (voteCounts.get(vote.secondaryTargetId) || 0) + 1);
+                }
+            }
         }
         if (voteCounts.size > 0) {
-            // Tìm mục tiêu có số phiếu cao nhất
-            let maxVotes = 0;
-            let topTargets = [];
-            for (const [tId, count] of voteCounts.entries()) {
-                if (count > maxVotes) {
-                    maxVotes = count;
-                    topTargets = [tId];
+            if (!isAlphaWolfActive) {
+                // Tìm mục tiêu có số phiếu cao nhất (1 nạn nhân)
+                let maxVotes = 0;
+                let topTargets = [];
+                for (const [tId, count] of voteCounts.entries()) {
+                    if (count > maxVotes) {
+                        maxVotes = count;
+                        topTargets = [tId];
+                    }
+                    else if (count === maxVotes) {
+                        topTargets.push(tId);
+                    }
                 }
-                else if (count === maxVotes) {
-                    topTargets.push(tId);
-                }
-            }
-            if (topTargets.length === 1) {
-                wolfVictimId = topTargets[0];
-            }
-            else {
-                // Hòa phiếu: Theo cấu hình (Mặc định không cắn ai hoặc ngẫu nhiên)
-                if (config.rules.wolfTieAction === 'RANDOM') {
-                    wolfVictimId = topTargets[Math.floor(Math.random() * topTargets.length)];
-                    logs.push(`Bầy sói hòa phiếu, nạn nhân được chọn ngẫu nhiên.`);
+                if (topTargets.length === 1) {
+                    wolfVictimIds.push(topTargets[0]);
                 }
                 else {
-                    wolfVictimId = null;
-                    logs.push(`Bầy sói không đạt được đồng thuận, đêm nay không có ai bị cắn.`);
+                    // Hòa phiếu: Theo cấu hình (Mặc định không cắn ai hoặc ngẫu nhiên)
+                    if (config.rules.wolfTieAction === 'RANDOM') {
+                        const picked = topTargets[Math.floor(Math.random() * topTargets.length)];
+                        wolfVictimIds.push(picked);
+                        logs.push(`Bầy sói hòa phiếu, nạn nhân được chọn ngẫu nhiên.`);
+                    }
+                    else {
+                        logs.push(`Bầy sói không đạt được đồng thuận, đêm nay không có ai bị cắn.`);
+                    }
+                }
+            }
+            else {
+                // Sói Trùm kích hoạt: Cắn 2 nạn nhân đêm nay!
+                const sortedEntries = Array.from(voteCounts.entries()).sort((a, b) => b[1] - a[1]);
+                if (sortedEntries.length === 1) {
+                    wolfVictimIds.push(sortedEntries[0][0]);
+                    logs.push(`👑 Sói Trùm: Bầy sói thống nhất cắn 1 nạn nhân.`);
+                }
+                else {
+                    const maxVotes = sortedEntries[0][1];
+                    const topTier = sortedEntries.filter((e) => e[1] === maxVotes).map((e) => e[0]);
+                    if (topTier.length >= 2) {
+                        if (topTier.length === 2) {
+                            wolfVictimIds.push(topTier[0], topTier[1]);
+                        }
+                        else {
+                            if (config.rules.wolfTieAction === 'RANDOM') {
+                                const shuffled = [...topTier].sort(() => Math.random() - 0.5);
+                                wolfVictimIds.push(shuffled[0], shuffled[1]);
+                                logs.push(`👑 Sói Trùm: Nhiều mục tiêu hòa phiếu, bầy sói ngẫu nhiên chọn 2 nạn nhân.`);
+                            }
+                            else {
+                                wolfVictimIds.push(topTier[0]);
+                            }
+                        }
+                    }
+                    else {
+                        // topTier chỉ có 1 người (Mục tiêu 1)
+                        wolfVictimIds.push(topTier[0]);
+                        // Tìm mục tiêu thứ 2 từ số phiếu tiếp theo
+                        const remaining = sortedEntries.filter((e) => e[1] < maxVotes);
+                        if (remaining.length > 0) {
+                            const secondMax = remaining[0][1];
+                            const secondTier = remaining.filter((e) => e[1] === secondMax).map((e) => e[0]);
+                            if (secondTier.length === 1) {
+                                wolfVictimIds.push(secondTier[0]);
+                            }
+                            else {
+                                const pickedSecond = secondTier[Math.floor(Math.random() * secondTier.length)];
+                                wolfVictimIds.push(pickedSecond);
+                            }
+                        }
+                    }
+                    logs.push(`👑 Sói Trùm uy quyền: Bầy sói mở cuộc tấn công đúp cắn 2 nạn nhân đêm nay!`);
                 }
             }
         }
+        wolfVictimId = wolfVictimIds[0] || null;
+        wolfVictimId2 = wolfVictimIds[1] || null;
         // 4. Kiểm tra Sói quỷ chuyển hóa (Demon Wolf Infect)
         const infectAction = actions.find((a) => a.type === 'DEMON_WOLF_INFECT');
         let demonWolfAttemptInfect = false;
@@ -144,23 +234,28 @@ class NightResolver {
         }
         // Xử lý Độc
         if (witchPoisonAction && witchPoisonAction.targetId) {
-            const witch = updatedPlayers.get(witchPoisonAction.userId);
-            if (witch && witch.isAlive && witch.skills.witchPoisonRemaining > 0) {
-                // Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm
-                if (wasHealed && witchHealAction?.userId === witch.id) {
-                    logs.push(`Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm.`);
-                }
-                else {
-                    const target = updatedPlayers.get(witchPoisonAction.targetId);
-                    if (target && target.isAlive) {
-                        poisonedVictimId = target.id;
-                        witch.skills.witchPoisonRemaining -= 1;
-                        logs.push(`Phù thủy đã hạ độc một người.`);
+            if (nightNumber === 1) {
+                logs.push(`Theo luật Werewolf Online, Phù thủy không được dùng bình độc vào Đêm 1.`);
+            }
+            else {
+                const witch = updatedPlayers.get(witchPoisonAction.userId);
+                if (witch && witch.isAlive && witch.skills.witchPoisonRemaining > 0) {
+                    // Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm
+                    if (wasHealed && witchHealAction?.userId === witch.id) {
+                        logs.push(`Phù thủy chỉ được dùng tối đa 1 bình mỗi đêm.`);
+                    }
+                    else {
+                        const target = updatedPlayers.get(witchPoisonAction.targetId);
+                        if (target && target.isAlive) {
+                            poisonedVictimId = target.id;
+                            witch.skills.witchPoisonRemaining -= 1;
+                            logs.push(`Phù thủy đã hạ độc một người.`);
+                        }
                     }
                 }
             }
         }
-        // 6. Tiên tri soi
+        // 6. Tiên tri, Thám tử, Sói tiên tri soi
         const seerActions = actions.filter((a) => a.type === 'SEER_INVESTIGATE');
         for (const act of seerActions) {
             const seer = updatedPlayers.get(act.userId);
@@ -171,14 +266,61 @@ class NightResolver {
             const target = updatedPlayers.get(act.targetId);
             if (!target)
                 continue;
-            // Sói thường, Sói quỷ, Sói cuồng nộ, Sói trắng đều là Sói
-            const isWolf = target.faction === 'WEREWOLF' || target.roleId === 'WHITE_WOLF';
+            // Sói thường, Sói quỷ, Sói cuồng nộ, Sói trắng, Sói tiên tri đều là Sói
+            const isWolf = target.faction === 'WEREWOLF' || target.roleId === 'WHITE_WOLF' || target.roleId === 'WOLF_SEER';
             investigationResults.push({
                 seerId: seer.id,
                 targetId: target.id,
                 isWolf,
             });
             logs.push(`Tiên tri ${seer.name} đã thực hiện soi.`);
+        }
+        // Thám tử điều tra 2 người
+        const detectiveActions = actions.filter((a) => a.type === 'DETECTIVE_INVESTIGATE');
+        for (const act of detectiveActions) {
+            const det = updatedPlayers.get(act.userId);
+            if (!det || !det.isAlive)
+                continue;
+            if (!act.targetId || !act.secondaryTargetId)
+                continue;
+            const p1 = updatedPlayers.get(act.targetId);
+            const p2 = updatedPlayers.get(act.secondaryTargetId);
+            if (!p1 || !p2)
+                continue;
+            const isSameTeam = p1.faction === p2.faction;
+            detectiveResults.push({
+                detectiveId: det.id,
+                target1Id: p1.id,
+                target2Id: p2.id,
+                isSameTeam,
+            });
+            logs.push(`Thám tử ${det.name} đã điều tra mối liên kết giữa ${p1.name} và ${p2.name}.`);
+        }
+        // Sói tiên tri soi chính xác vai trò
+        const wolfSeerActions = actions.filter((a) => a.type === 'WOLF_SEER_INVESTIGATE');
+        for (const act of wolfSeerActions) {
+            const ws = updatedPlayers.get(act.userId);
+            if (!ws || !ws.isAlive)
+                continue;
+            if (!act.targetId)
+                continue;
+            const aliveWolves = Array.from(updatedPlayers.values()).filter((p) => p.isAlive && p.faction === 'WEREWOLF');
+            if (aliveWolves.length <= 1) {
+                logs.push(`Sói tiên tri ${ws.name} là con sói cuối cùng còn sống nên không thể sử dụng kỹ năng soi.`);
+                continue;
+            }
+            const target = updatedPlayers.get(act.targetId);
+            if (!target)
+                continue;
+            const roleInfo = roles_1.STANDARD_ROLES[target.roleId];
+            const targetRoleName = roleInfo ? roleInfo.name : target.roleId;
+            wolfSeerResults.push({
+                wolfSeerId: ws.id,
+                targetId: target.id,
+                targetRoleId: target.roleId,
+                targetRoleName,
+            });
+            logs.push(`Sói tiên tri ${ws.name} đã soi ra vai trò của ${target.name}.`);
         }
         // 7. Sói trắng cắn riêng (Từ đêm 2, mỗi đêm chẵn)
         let whiteWolfVictimId = null;
@@ -197,35 +339,48 @@ class NightResolver {
             }
         }
         // 8. Đánh giá kết quả đòn cắn bầy sói
-        if (wolfVictimId) {
-            const isProtected = protectedPlayerIds.has(wolfVictimId);
+        for (let i = 0; i < wolfVictimIds.length; i++) {
+            const vId = wolfVictimIds[i];
+            const victim = updatedPlayers.get(vId);
+            if (!victim || !victim.isAlive)
+                continue;
+            const isProtected = protectedPlayerIds.has(vId);
             // Nếu có hiệu ứng Sói cuồng nộ (Berserk pierce): đòn cắn xuyên lớp bảo vệ
             if (isProtected && activeBerserkPierce) {
-                logs.push(`Đòn cắn của Sói mang sức mạnh Cuồng nộ đã XUYÊN THỦNG lớp khiên bảo vệ!`);
+                logs.push(`Đòn cắn của Sói mang sức mạnh Cuồng nộ đã XUYÊN THỦNG lớp khiên bảo vệ của ${victim.name}!`);
             }
             const protectedEffective = isProtected && !activeBerserkPierce;
-            wasProtected = protectedEffective;
-            if (wasHealed) {
-                logs.push(`Nạn nhân của bầy sói đã được Phù thủy cứu mạng.`);
+            if (i === 0) {
+                wasProtected = protectedEffective;
+            }
+            const isSerialKiller = victim.roleId === 'SERIAL_KILLER' || victim.originalRoleId === 'SERIAL_KILLER';
+            const healedThis = wasHealed && (witchHealAction?.targetId === vId || (!witchHealAction?.targetId && i === 0));
+            if (isSerialKiller) {
+                // Sát nhân mình đồng da sắt miễn nhiễm cắn đêm của bầy sói
+                wasSerialKillerImmune = true;
+                if (i === 0)
+                    wasProtected = true;
+                logs.push(`Bầy sói đã cắn ${victim.name}, nhưng Kẻ sát nhân mình đồng da sắt đã miễn nhiễm với đòn cắn đêm!`);
+            }
+            else if (healedThis) {
+                logs.push(`Nạn nhân ${victim.name} của bầy sói đã được Phù thủy cứu mạng.`);
             }
             else if (protectedEffective) {
-                logs.push(`Nạn nhân của bầy sói đã được Bảo vệ che chở bình an.`);
+                logs.push(`Nạn nhân ${victim.name} của bầy sói đã được Bảo vệ che chở bình an.`);
             }
             else {
                 // Không được cứu và không được bảo vệ hiệu quả
-                if (demonWolfAttemptInfect && demonWolfPlayer) {
+                if (demonWolfAttemptInfect && demonWolfPlayer && i === 0) {
                     // Chuyển hóa thành sói thành công!
-                    const victim = updatedPlayers.get(wolfVictimId);
                     victim.faction = 'WEREWOLF';
                     victim.roleId = 'WEREWOLF'; // Trở thành sói thường, mất kỹ năng cũ
                     demonWolfPlayer.skills.demonWolfInfectRemaining -= 1; // Tiêu hao lượt
                     wasInfected = true;
                     newWerewolfId = victim.id;
-                    logs.push(`Nạn nhân không chết mà đã bị Sói quỷ tha hóa thành Sói!`);
+                    logs.push(`Nạn nhân ${victim.name} không chết mà đã bị Sói quỷ tha hóa thành Sói!`);
                 }
                 else {
                     // Bị cắn chết
-                    const victim = updatedPlayers.get(wolfVictimId);
                     victim.isAlive = false;
                     victim.deathReason = 'WOLF_BITE';
                     victim.deathNight = nightNumber;
@@ -235,8 +390,30 @@ class NightResolver {
                 }
             }
             // Nếu chuyển hóa thất bại do được cứu hoặc bảo vệ, không mất lượt của Sói quỷ
-            if (demonWolfAttemptInfect && (wasHealed || protectedEffective)) {
+            if (demonWolfAttemptInfect && i === 0 && (healedThis || protectedEffective || isSerialKiller)) {
                 logs.push(`Sói quỷ chuyển hóa thất bại do mục tiêu được bảo vệ/cứu. Lượt chuyển hóa không bị tiêu hao.`);
+            }
+        }
+        // Sát nhân ra tay đâm chết nạn nhân
+        const skAction = actions.find((a) => a.type === 'SERIAL_KILLER_KILL');
+        if (skAction && skAction.targetId) {
+            const sk = updatedPlayers.get(skAction.userId);
+            if (sk && sk.isAlive && sk.roleId === 'SERIAL_KILLER') {
+                const skTarget = updatedPlayers.get(skAction.targetId);
+                if (skTarget && skTarget.isAlive) {
+                    if (protectedPlayerIds.has(skTarget.id)) {
+                        logs.push(`Kẻ sát nhân đã đâm ${skTarget.name}, nhưng nạn nhân may mắn được che chở an toàn!`);
+                    }
+                    else {
+                        skTarget.isAlive = false;
+                        skTarget.deathReason = 'SERIAL_KILLER';
+                        skTarget.deathNight = nightNumber;
+                        skTarget.deathPhase = 'NIGHT';
+                        deaths.push({ player: skTarget, reason: 'SERIAL_KILLER' });
+                        serialKillerVictimId = skTarget.id;
+                        logs.push(`${skTarget.name} đã bị Kẻ sát nhân đâm chết bằng một nhát dao chí mạng.`);
+                    }
+                }
             }
         }
         // Phù thủy độc chết
@@ -305,13 +482,19 @@ class NightResolver {
             result: {
                 deaths,
                 wolfVictimId,
+                wolfVictimId2,
+                wolfVictimIds,
                 wasProtected,
                 wasHealed,
                 wasInfected,
                 newWerewolfId,
                 berserkTriggeredNextNight,
                 hunterTriggeredId,
+                serialKillerVictimId,
+                wasSerialKillerImmune,
                 investigationResults,
+                detectiveResults,
+                wolfSeerResults,
                 logs,
             },
             updatedPlayers,

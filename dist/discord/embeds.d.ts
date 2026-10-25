@@ -2,6 +2,8 @@ import { EmbedBuilder } from 'discord.js';
 import { WerewolfGame } from '../engine/game';
 import { GameWinResult, NightResolutionResult, Player } from '../engine/types';
 import { RoleInfo } from '../engine/roles';
+export declare function formatPlayerName(player: Player, withMention?: boolean): string;
+export declare function formatPlayerTag(player: Player): string;
 export declare class WerewolfEmbeds {
     static buildLobbyEmbed(game: WerewolfGame): EmbedBuilder;
     static buildRoleDistributionEmbed(game: WerewolfGame): EmbedBuilder;

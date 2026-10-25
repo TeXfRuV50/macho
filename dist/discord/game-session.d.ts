@@ -10,6 +10,7 @@ export declare class GameSession {
     readonly client: Client;
     mainMessageId: string | null;
     private timerHandle;
+    private botChatTimers;
     private isProcessingPhaseTransition;
     constructor(game: WerewolfGame, db: DatabaseManager, dmManager: DmManager, client: Client);
     getChannel(): Promise<TextChannel | null>;
@@ -35,6 +36,10 @@ export declare class GameSession {
      * Kéo bảng bỏ phiếu xuống cuối kênh khi bị người chơi chat trôi tin nhắn
      */
     repostVotingMessage(): Promise<boolean>;
+    /**
+     * Kéo bảng đêm xuống cuối kênh để người chơi dễ bấm kỹ năng
+     */
+    repostNightMessage(): Promise<boolean>;
     /**
      * Bắt đầu ván đấu: Chia vai bí mật và gửi DM cho từng người
      */
@@ -98,6 +103,7 @@ export declare class GameSession {
      * Đặt hẹn giờ chuyển pha
      */
     private schedulePhaseTimer;
+    clearBotChatTimers(): void;
     clearPhaseTimer(): void;
     /**
      * Kiểm tra hạn chót khi bot khởi động lại (Reboot Recovery)

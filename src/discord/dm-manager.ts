@@ -34,6 +34,10 @@ export class DmManager {
     options: BaseMessageOptions,
     gameId: string
   ): Promise<SendPrivateResult> {
+    if (player.isBot) {
+      return { success: true, usedFallbackThread: false };
+    }
+
     try {
       const user = await client.users.fetch(player.id);
       if (!user) {

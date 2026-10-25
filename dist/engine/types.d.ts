@@ -1,13 +1,15 @@
 import { z } from 'zod';
 export type GamePhase = 'LOBBY' | 'ROLE_DISTRIBUTION' | 'NIGHT' | 'DAWN' | 'DISCUSSION' | 'VOTING' | 'RESOLUTION' | 'FINISHED' | 'PAUSED' | 'CANCELLED';
 export type Faction = 'VILLAGE' | 'WEREWOLF' | 'SOLO' | 'LOVERS';
-export type RoleId = 'VILLAGER' | 'SEER' | 'BODYGUARD' | 'WITCH' | 'HUNTER' | 'IDIOT' | 'CUPID' | 'WEREWOLF' | 'DEMON_WOLF' | 'BERSERK_WOLF' | 'WHITE_WOLF' | 'TANNER' | string;
-export type ActionType = 'CONFIRM_ROLE' | 'CUPID_LINK' | 'BODYGUARD_PROTECT' | 'SEER_INVESTIGATE' | 'WOLF_VOTE' | 'DEMON_WOLF_INFECT' | 'WITCH_HEAL' | 'WITCH_POISON' | 'WITCH_PASS' | 'WHITE_WOLF_KILL' | 'HUNTER_SHOT' | 'DAY_VOTE' | 'DAY_VOTE_SKIP';
+export type RoleId = 'VILLAGER' | 'SEER' | 'BODYGUARD' | 'DOCTOR' | 'WITCH' | 'HUNTER' | 'GUNNER' | 'DETECTIVE' | 'IDIOT' | 'CUPID' | 'WEREWOLF' | 'ALPHA_WOLF' | 'DEMON_WOLF' | 'BERSERK_WOLF' | 'WOLF_SEER' | 'WHITE_WOLF' | 'FOOL' | 'TANNER' | 'SERIAL_KILLER' | string;
+export type ActionType = 'CONFIRM_ROLE' | 'CUPID_LINK' | 'BODYGUARD_PROTECT' | 'DOCTOR_PROTECT' | 'SEER_INVESTIGATE' | 'DETECTIVE_INVESTIGATE' | 'WOLF_SEER_INVESTIGATE' | 'SERIAL_KILLER_KILL' | 'GUNNER_SHOOT' | 'WOLF_VOTE' | 'DEMON_WOLF_INFECT' | 'WITCH_HEAL' | 'WITCH_POISON' | 'WITCH_PASS' | 'WHITE_WOLF_KILL' | 'HUNTER_SHOT' | 'DAY_VOTE' | 'DAY_VOTE_SKIP';
 export interface PlayerSkills {
     witchHealRemaining: number;
     witchPoisonRemaining: number;
     demonWolfInfectRemaining: number;
     lastProtectedTargetId: string | null;
+    doctorLastProtectedTargetId?: string | null;
+    gunnerBulletsRemaining?: number;
     hasUsedHunterShot: boolean;
     idiotRevealed: boolean;
     customSkillCharges?: Record<string, number>;
@@ -20,7 +22,8 @@ export interface Player {
     faction: Faction;
     isAlive: boolean;
     canVote: boolean;
-    deathReason?: 'WOLF_BITE' | 'WITCH_POISON' | 'WHITE_WOLF' | 'HEARTBREAK' | 'HUNTER_SHOT' | 'LYNCH' | 'DISCONNECT';
+    isBot?: boolean;
+    deathReason?: 'WOLF_BITE' | 'WITCH_POISON' | 'WHITE_WOLF' | 'HEARTBREAK' | 'HUNTER_SHOT' | 'SERIAL_KILLER' | 'GUNNER_SHOT' | 'LYNCH' | 'DISCONNECT';
     deathNight?: number;
     deathPhase?: GamePhase;
     loverId?: string | null;
@@ -105,19 +108,35 @@ export interface PlayerAction {
 export interface NightResolutionResult {
     deaths: Array<{
         player: Player;
-        reason: 'WOLF_BITE' | 'WITCH_POISON' | 'WHITE_WOLF' | 'HEARTBREAK' | 'HUNTER_SHOT';
+        reason: 'WOLF_BITE' | 'WITCH_POISON' | 'WHITE_WOLF' | 'HEARTBREAK' | 'HUNTER_SHOT' | 'SERIAL_KILLER';
     }>;
     wolfVictimId: string | null;
+    wolfVictimId2?: string | null;
+    wolfVictimIds?: string[];
     wasProtected: boolean;
     wasHealed: boolean;
     wasInfected: boolean;
     newWerewolfId: string | null;
     berserkTriggeredNextNight: boolean;
     hunterTriggeredId: string | null;
+    serialKillerVictimId: string | null;
+    wasSerialKillerImmune?: boolean;
     investigationResults: Array<{
         seerId: string;
         targetId: string;
         isWolf: boolean;
+    }>;
+    detectiveResults?: Array<{
+        detectiveId: string;
+        target1Id: string;
+        target2Id: string;
+        isSameTeam: boolean;
+    }>;
+    wolfSeerResults?: Array<{
+        wolfSeerId: string;
+        targetId: string;
+        targetRoleId: RoleId;
+        targetRoleName: string;
     }>;
     logs: string[];
 }

@@ -171,6 +171,10 @@ Bot cần các quyền sau để vận hành phòng chơi trơn tru:
 | `/start` | `players` (tùy chọn) | Tạo sảnh chờ mới hoặc bắt đầu ván. Yêu cầu **tối thiểu 4 người chơi**. Nếu dưới 4 người, bot từ chối bắt đầu với thông báo: `Cần tối thiểu 4 người chơi để bắt đầu trận Ma Sói. Hiện tại đang có [số lượng] người.`. |
 | `/add` | `@user` | Chủ phòng thêm một người chơi cụ thể vào sảnh chờ. |
 | `/remove` | `@user` | Chủ phòng xóa một người chơi khỏi sảnh chờ. |
+| `/addbot` | `count` (tùy chọn) | Chủ phòng thêm 1 hoặc nhiều người chơi Bot ảo (AI) vào sảnh chờ để đủ số lượng. |
+| `/fillbots` | `target` (tùy chọn) | **Tự động thêm bot vào phòng để cưỡng ép đủ số lượng** bắt đầu ván ngay lập tức (≥ 4 người hoặc theo số vai trong cấu hình). |
+| `/clearbots` | Không | Chủ phòng xóa toàn bộ bot ảo khỏi phòng. |
+| `/bot` | `add`, `fill`, `remove`, `clear` | Bộ lệnh quản lý bot ảo linh hoạt (thêm, điền đủ, xóa bớt, xóa sạch). |
 | `/custom` | Không | Mở bảng điều khiển cấu hình số lượng vai, thời lượng pha và các biến thể luật (yêu cầu cấu hình tối thiểu 4 người). |
 | `/roles` | Không | Xem bách khoa toàn thư danh mục vai trò, phe phái và kỹ năng. |
 | `/role` | Không | Xem lại vai trò bí mật của chính bạn (tin nhắn ẩn ephemeral). |

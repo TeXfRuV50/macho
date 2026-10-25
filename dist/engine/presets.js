@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BUILTIN_PRESETS = exports.PRESET_ADVANCED = exports.PRESET_BASIC = exports.DEFAULT_CONFIG = void 0;
+exports.BUILTIN_PRESETS = exports.PRESET_WOLVESVILLE = exports.PRESET_ADVANCED = exports.PRESET_BASIC = exports.DEFAULT_CONFIG = void 0;
 exports.balancePresetForPlayerCount = balancePresetForPlayerCount;
 exports.validateGameConfig = validateGameConfig;
 exports.DEFAULT_CONFIG = {
@@ -69,9 +69,30 @@ exports.PRESET_ADVANCED = {
         },
     },
 };
+exports.PRESET_WOLVESVILLE = {
+    id: 'wolvesville',
+    name: 'Wolvesville (Werewolf Online)',
+    description: 'Preset theo chuẩn Werewolf Online: Sói thường, Sói tiên tri, Bác sĩ, Thám tử, Xạ thủ, Kẻ khờ, Kẻ sát nhân.',
+    minPlayers: 6,
+    maxPlayers: 25,
+    config: {
+        ...exports.DEFAULT_CONFIG,
+        roles: {
+            WEREWOLF: 1,
+            WOLF_SEER: 1,
+            DOCTOR: 1,
+            DETECTIVE: 1,
+            GUNNER: 1,
+            FOOL: 1,
+            SERIAL_KILLER: 1,
+            VILLAGER: 1,
+        },
+    },
+};
 exports.BUILTIN_PRESETS = {
     basic: exports.PRESET_BASIC,
     advanced: exports.PRESET_ADVANCED,
+    wolvesville: exports.PRESET_WOLVESVILLE,
 };
 /**
  * Tự động tính toán số Dân làng để tổng số vai vừa khít với số người chơi trong phòng.

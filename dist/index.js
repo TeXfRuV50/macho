@@ -36,7 +36,7 @@ const client = new discord_js_1.Client({
         discord_js_1.Partials.User,
     ],
 });
-client.once('ready', async () => {
+client.once(discord_js_1.Events.ClientReady, async () => {
     console.log(`✅ Bot đã đăng nhập thành công với tài khoản: ${client.user?.tag}`);
     // Phục hồi toàn bộ ván đấu đang chạy dở từ SQLite (Reboot Recovery)
     try {
@@ -54,11 +54,21 @@ client.once('ready', async () => {
     }
     console.log('🐺 Bot Quản Trò Ma Sói đã sẵn sàng nhận lệnh!');
 });
+client.on('error', (err) => {
+    console.error('❌ [Discord Client Error]:', err?.message || err);
+});
 client.on('interactionCreate', async (interaction) => {
     await interactionHandler.handleInteraction(interaction);
 });
 client.on('messageCreate', async (message) => {
     await interactionHandler.handleMessage(message);
+});
+// Bắt lỗi toàn cục để không bao giờ crash tiến trình bot
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ [Unhandled Rejection]:', reason?.message || reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('❌ [Uncaught Exception]:', err?.message || err);
 });
 // Xử lý đóng ứng dụng an toàn (Graceful Shutdown)
 process.on('SIGINT', () => {
