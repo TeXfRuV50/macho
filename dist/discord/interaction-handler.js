@@ -85,17 +85,18 @@ class InteractionHandler {
             }
         }
         catch (err) {
+            if (err?.code === 10062 || err?.code === 40060) {
+                return;
+            }
             cli_ui_1.CliUi.logError('Lỗi khi xử lý tương tác Discord', err);
-            if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-                try {
-                    await interaction.reply({
-                        content: `❌ Đã xảy ra lỗi khi xử lý tương tác: ${err?.message || 'Lỗi hệ thống'}`,
-                        ephemeral: true,
-                    });
-                }
-                catch {
-                    // Bỏ qua nếu interaction không còn hợp lệ
-                }
+            try {
+                await this.safeReply(interaction, {
+                    content: `❌ Đã xảy ra lỗi khi xử lý tương tác: ${err?.message || 'Lỗi hệ thống'}`,
+                    flags: 64,
+                });
+            }
+            catch {
+                // Bỏ qua nếu interaction không còn hợp lệ
             }
         }
     }
@@ -105,20 +106,20 @@ class InteractionHandler {
     async handleChatInput(interaction) {
         const { commandName, channelId, guildId, user } = interaction;
         if (!channelId || !guildId) {
-            await interaction.reply({ content: 'Lệnh này chỉ dùng trong kênh văn bản của máy chủ.', ephemeral: true });
+            await this.safeReply(interaction, { content: 'Lệnh này chỉ dùng trong kênh văn bản của máy chủ.', flags: 64 });
             return;
         }
         const currentSession = this.activeSessions.get(channelId);
         // 1. /help
         if (commandName === 'help') {
-            await interaction.reply({ embeds: [embeds_1.WerewolfEmbeds.buildHelpEmbed()], ephemeral: true });
+            await this.safeReply(interaction, { embeds: [embeds_1.WerewolfEmbeds.buildHelpEmbed()], flags: 64 });
             return;
         }
         // 2. /roles
         if (commandName === 'roles') {
-            await interaction.reply({
+            await this.safeReply(interaction, {
                 embeds: [embeds_1.WerewolfEmbeds.buildRolesCatalogEmbed(currentSession?.game.customRoles)],
-                ephemeral: true,
+                flags: 64,
             });
             return;
         }
@@ -126,31 +127,33 @@ class InteractionHandler {
         if (commandName === 'start') {
             if (currentSession && currentSession.game.phase === 'LOBBY') {
                 if (currentSession.game.hostId !== user.id) {
-                    await interaction.reply({
+                    await this.safeReply(interaction, {
                         content: '⚠️ Chỉ chủ phòng mới có quyền bắt đầu ván đấu.',
-                        ephemeral: true,
+                        flags: 64,
                     });
                     return;
                 }
                 if (currentSession.game.players.size < 4) {
-                    await interaction.reply({
+                    await this.safeReply(interaction, {
                         content: `Cần tối thiểu 4 người chơi để bắt đầu trận Ma Sói. Hiện tại đang có ${currentSession.game.players.size} người.`,
-                        ephemeral: true,
+                        flags: 64,
                     });
                     return;
                 }
-                await interaction.deferReply({ ephemeral: true });
+                await interaction.deferReply({ flags: 64 });
                 const res = await currentSession.start();
                 await interaction.editReply({ content: res.message });
                 return;
             }
             if (currentSession && currentSession.game.phase !== 'FINISHED' && currentSession.game.phase !== 'CANCELLED') {
-                await interaction.reply({
+                await this.safeReply(interaction, {
                     content: '⚠️ Đang có một ván đấu khác hoạt động trong kênh này! Hãy kết thúc ván cũ trước.',
-                    ephemeral: true,
+                    flags: 64,
                 });
                 return;
             }
+            // Defer reply ngay lập tức để Discord không bao giờ báo "Ứng dụng không phản hồi"
+            await interaction.deferReply();
             const gameId = `ww-${Date.now().toString(36)}`;
             const game = new game_1.WerewolfGame(gameId, guildId, channelId, user.id);
             const session = new game_session_1.GameSession(game, this.db, this.dmManager, interaction.client);
@@ -178,12 +181,11 @@ class InteractionHandler {
             this.db.saveGame(game);
             const embed = embeds_1.WerewolfEmbeds.buildLobbyEmbed(game);
             const controls = components_1.WerewolfComponents.buildLobbyControls(game);
-            const replyMsg = await interaction.reply({
+            const replyMsg = await interaction.editReply({
                 embeds: [embed],
                 components: controls,
-                withResponse: true,
             });
-            session.mainMessageId = replyMsg.resource?.message?.id || replyMsg.id;
+            session.mainMessageId = replyMsg.id || replyMsg.resource?.message?.id;
             return;
         }
         // 4. /role (Xem vai bí mật của bản thân)

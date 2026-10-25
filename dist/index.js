@@ -73,10 +73,20 @@ client.on('error', (err) => {
     cli_ui_1.CliUi.log('ERROR', `Discord Client Error: ${err?.message || err}`);
 });
 client.on('interactionCreate', async (interaction) => {
-    await interactionHandler.handleInteraction(interaction);
+    try {
+        await interactionHandler.handleInteraction(interaction);
+    }
+    catch (err) {
+        cli_ui_1.CliUi.logError('Lỗi xử lý interactionCreate', err);
+    }
 });
 client.on('messageCreate', async (message) => {
-    await interactionHandler.handleMessage(message);
+    try {
+        await interactionHandler.handleMessage(message);
+    }
+    catch (err) {
+        cli_ui_1.CliUi.logError('Lỗi xử lý messageCreate', err);
+    }
 });
 // Bắt lỗi toàn cục để không bao giờ crash tiến trình bot
 process.on('unhandledRejection', (reason) => {

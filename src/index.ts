@@ -88,11 +88,19 @@ client.on('error', (err: any) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  await interactionHandler.handleInteraction(interaction);
+  try {
+    await interactionHandler.handleInteraction(interaction);
+  } catch (err: any) {
+    CliUi.logError('Lỗi xử lý interactionCreate', err);
+  }
 });
 
 client.on('messageCreate', async (message) => {
-  await interactionHandler.handleMessage(message);
+  try {
+    await interactionHandler.handleMessage(message);
+  } catch (err: any) {
+    CliUi.logError('Lỗi xử lý messageCreate', err);
+  }
 });
 
 // Bắt lỗi toàn cục để không bao giờ crash tiến trình bot
