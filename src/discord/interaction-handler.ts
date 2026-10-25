@@ -67,29 +67,31 @@ export class InteractionHandler {
   /**
    * Trả lời tương tác an toàn, tránh lỗi 10062 (Unknown interaction) và không làm sập bot
    */
-  public async safeReply(interaction: any, options: any): Promise<void> {
+  public async safeReply(interaction: any, options: any): Promise<any> {
     try {
-      if (!interaction) return;
+      if (!interaction) return null;
       if (typeof options === 'object' && options !== null) {
-        if (options.ephemeral && !options.flags) {
-          options.flags = 64;
+        if (options.ephemeral) {
+          delete options.ephemeral;
+          if (!options.flags) options.flags = 64;
         }
       }
       if (interaction.deferred) {
-        await interaction.editReply(options);
+        return await interaction.editReply(options);
       } else if (!interaction.replied && typeof interaction.reply === 'function') {
-        await interaction.reply(options);
+        return await interaction.reply(options);
       } else if (typeof interaction.followUp === 'function') {
-        await interaction.followUp(options);
+        return await interaction.followUp(options);
       }
     } catch (err: any) {
       // 10062: Unknown interaction (hết hạn >3s do mạng lag)
       // 40060: Interaction has already been acknowledged
       if (err?.code === 10062 || err?.code === 40060) {
-        return;
+        return null;
       }
       console.warn('[SafeReply Warning]:', err?.message || err);
     }
+    return null;
   }
 
   /**
@@ -140,10 +142,6 @@ export class InteractionHandler {
     }
 
     const currentSession = this.activeSessions.get(channelId);
-
-    // Tránh hoàn toàn lỗi "Ứng dụng không phản hồi" (>3s): Tự động ACK trước trong vòng <50ms
-    const isPublicCommand = commandName === 'pause' || commandName === 'resume' || (commandName === 'start' && !currentSession);
-    await this.safeDeferReply(interaction, !isPublicCommand);
 
     // 1. /help
     if (commandName === 'help') {
@@ -222,11 +220,13 @@ export class InteractionHandler {
       const embed = WerewolfEmbeds.buildLobbyEmbed(game);
       const controls = WerewolfComponents.buildLobbyControls(game);
 
-      const replyMsg = await interaction.editReply({
+      const replyMsg = await this.safeReply(interaction, {
         embeds: [embed],
         components: controls,
       });
-      session.mainMessageId = (replyMsg as any).id || (replyMsg as any).resource?.message?.id;
+      if (replyMsg && (replyMsg.id || replyMsg.resource?.message?.id)) {
+        session.mainMessageId = replyMsg.id || replyMsg.resource?.message?.id;
+      }
       return;
     }
 
@@ -702,11 +702,6 @@ export class InteractionHandler {
       return;
     }
 
-    // Tránh lỗi timeout >3s từ Discord API bằng cách ACK ngầm ngay lập tức (trừ khi là nút mở modal)
-    if (!action.startsWith('open_') && action !== 'modal_join') {
-      await this.safeDeferReply(interaction, true);
-    }
-
     // Xử lý các action nút bấm
     if (action === 'join') {
       const res = session.game.addPlayer(
@@ -1013,20 +1008,13 @@ export class InteractionHandler {
     } else if (action === 'custom_menu' || action === 'open_role_table') {
       const embed = ConfigUi.buildRoleTableEmbed(session.game.config, session.game.customRoles, session.game.players.size, 0);
       const controls = ConfigUi.buildRoleTableControls(session.game.id, session.game.hostId, session.game.config, session.game.customRoles, 0);
-      if (interaction.replied || interaction.deferred) {
-        try {
-          await interaction.followUp({ embeds: [embed], components: controls, ephemeral: true });
-        } catch {}
-      } else {
-        await this.safeReply(interaction, { embeds: [embed], components: controls, ephemeral: true });
-      }
+      await this.safeReply(interaction, { embeds: [embed], components: controls, ephemeral: true });
     } else if (action === 'role_inc') {
       const [roleId, pageStr] = (parsed.extra || '').split(':');
       const page = parseInt(pageStr || '0', 10);
       if (roleId) {
         session.game.config.roles[roleId] = Math.min(25, (session.game.config.roles[roleId] || 0) + 1);
         this.db.saveGame(session.game);
-        await session.updateMainMessage({ embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)] });
         const embed = ConfigUi.buildRoleTableEmbed(session.game.config, session.game.customRoles, session.game.players.size, page);
         const controls = ConfigUi.buildRoleTableControls(session.game.id, session.game.hostId, session.game.config, session.game.customRoles, page);
         try {
@@ -1034,6 +1022,7 @@ export class InteractionHandler {
         } catch (err: any) {
           if (err?.code !== 10062) console.warn('[RoleInc Warning]:', err?.message);
         }
+        await session.updateMainMessage({ embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)] });
       }
     } else if (action === 'role_dec') {
       const [roleId, pageStr] = (parsed.extra || '').split(':');
@@ -1041,7 +1030,6 @@ export class InteractionHandler {
       if (roleId) {
         session.game.config.roles[roleId] = Math.max(0, (session.game.config.roles[roleId] || 0) - 1);
         this.db.saveGame(session.game);
-        await session.updateMainMessage({ embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)] });
         const embed = ConfigUi.buildRoleTableEmbed(session.game.config, session.game.customRoles, session.game.players.size, page);
         const controls = ConfigUi.buildRoleTableControls(session.game.id, session.game.hostId, session.game.config, session.game.customRoles, page);
         try {
@@ -1049,6 +1037,7 @@ export class InteractionHandler {
         } catch (err: any) {
           if (err?.code !== 10062) console.warn('[RoleDec Warning]:', err?.message);
         }
+        await session.updateMainMessage({ embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)] });
       }
     } else if (action === 'role_page') {
       const page = parseInt(parsed.extra || '0', 10);
@@ -1064,10 +1053,6 @@ export class InteractionHandler {
       const balanced = balancePresetForPlayerCount(session.game.config, session.game.players.size);
       session.game.setConfig(balanced);
       this.db.saveGame(session.game);
-      await session.updateMainMessage({
-        embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)],
-        components: WerewolfComponents.buildLobbyControls(session.game),
-      });
       const embed = ConfigUi.buildRoleTableEmbed(session.game.config, session.game.customRoles, session.game.players.size, page);
       const controls = ConfigUi.buildRoleTableControls(session.game.id, session.game.hostId, session.game.config, session.game.customRoles, page);
       try {
@@ -1075,6 +1060,10 @@ export class InteractionHandler {
       } catch (err: any) {
         if (err?.code !== 10062) console.warn('[AutoBalanceTable Warning]:', err?.message);
       }
+      await session.updateMainMessage({
+        embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)],
+        components: WerewolfComponents.buildLobbyControls(session.game),
+      });
     } else if (action === 'add_all_roles') {
       if (interaction.user.id !== session.game.hostId) {
         await this.safeReply(interaction, {
@@ -1095,13 +1084,6 @@ export class InteractionHandler {
 
       this.db.saveGame(session.game);
 
-      if (session.game.phase === 'LOBBY') {
-        await session.updateMainMessage({
-          embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)],
-          components: WerewolfComponents.buildLobbyControls(session.game),
-        });
-      }
-
       if (parsed.phase === 'LOBBY') {
         await this.safeReply(interaction, {
           content: '⚡ **Đã thêm tất cả các vai trò vào ván đấu!** (Mỗi vai 1 vị trí)',
@@ -1120,6 +1102,11 @@ export class InteractionHandler {
           });
         }
       }
+
+      await session.updateMainMessage({
+        embeds: [WerewolfEmbeds.buildLobbyEmbed(session.game)],
+        components: WerewolfComponents.buildLobbyControls(session.game),
+      });
     } else if (action === 'main_config_menu') {
       const embed = ConfigUi.buildConfigSummaryEmbed(session.game.config, session.game.players.size);
       const controls = ConfigUi.buildConfigControls(session.game.id, session.game.hostId);
@@ -1179,9 +1166,6 @@ export class InteractionHandler {
       await this.safeReply(interaction, { content: 'Bạn không có quyền thực hiện menu này.', ephemeral: true });
       return;
     }
-
-    // Tránh lỗi timeout >3s từ Discord API bằng cách ACK ngầm ngay lập tức
-    await this.safeDeferReply(interaction, true);
 
     const selectedValue = interaction.values[0];
 

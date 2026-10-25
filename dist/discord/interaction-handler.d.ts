@@ -19,7 +19,7 @@ export declare class InteractionHandler {
     /**
      * Trả lời tương tác an toàn, tránh lỗi 10062 (Unknown interaction) và không làm sập bot
      */
-    safeReply(interaction: any, options: any): Promise<void>;
+    safeReply(interaction: any, options: any): Promise<any>;
     /**
      * Bộ điều phối xử lý tương tác chính của Discord
      */

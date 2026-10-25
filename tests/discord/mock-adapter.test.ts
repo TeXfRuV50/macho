@@ -43,14 +43,20 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
       replied: false,
       deferred,
       reply: vi.fn(async (options: any) => {
-        replyPayload = options;
+        replyPayload = {
+          ...options,
+          ephemeral: options.ephemeral ?? (options.flags === 64),
+        };
         return { id: 'mock-reply-id' };
       }),
       deferReply: vi.fn(async (options: any) => {
         deferred = true;
       }),
       editReply: vi.fn(async (options: any) => {
-        replyPayload = options;
+        replyPayload = {
+          ...options,
+          ephemeral: options.ephemeral ?? (options.flags === 64),
+        };
       }),
       update: vi.fn(async (options: any) => {
         replyPayload = options;
@@ -74,7 +80,10 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
       replied: false,
       deferred: false,
       reply: vi.fn(async (options: any) => {
-        replyPayload = options;
+        replyPayload = {
+          ...options,
+          ephemeral: options.ephemeral ?? (options.flags === 64),
+        };
       }),
       update: vi.fn(async (options: any) => {
         replyPayload = options;
@@ -1254,7 +1263,7 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
       db.close();
     });
 
-    it('Tương tác bỏ phiếu skip_vote được deferReply tự động để không bị timeout quá 3 giây', async () => {
+    it('Tương tác bỏ phiếu skip_vote được phản hồi an toàn và ghi nhận phiếu', async () => {
       const db = new DatabaseManager(':memory:');
       const dmManager = new DmManager();
       const handler = new InteractionHandler(db, dmManager);
@@ -1284,7 +1293,6 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
       const session = new GameSession(game, db, dmManager, mockClient);
       handler.registerSession(session);
 
-      let wasDeferred = false;
       let replyContent = '';
 
       const mockButton = {
@@ -1299,7 +1307,6 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
         deferred: false,
         replied: false,
         deferReply: vi.fn(async () => {
-          wasDeferred = true;
           mockButton.deferred = true;
         }),
         editReply: vi.fn(async (opts: any) => {
@@ -1312,8 +1319,59 @@ describe('Discord Mock Adapter & Security Integration Tests', () => {
 
       await handler.handleInteraction(mockButton);
 
-      expect(wasDeferred).toBe(true);
       expect(replyContent).toContain('Bạn đã chọn bỏ phiếu trắng');
+
+      session.stopWatchdog();
+      db.close();
+    });
+
+    it('Nút role_inc, role_dec, role_page thực hiện interaction.update mà không bị kẹt deferReply', async () => {
+      const db = new DatabaseManager(':memory:');
+      const dmManager = new DmManager();
+      const handler = new InteractionHandler(db, dmManager);
+
+      const game = new WerewolfGame('game-table-update', 'guild-1', 'ch-table', 'host-1');
+      game.addPlayer('host-1', 'Host User');
+      game.phase = 'LOBBY';
+
+      const mockChannel = {
+        isTextBased: () => true,
+        isDMBased: () => false,
+        send: vi.fn(async () => ({ id: 'msg-tbl', edit: vi.fn() })),
+        messages: { fetch: vi.fn(async () => ({ edit: vi.fn() })) },
+      };
+
+      const mockClient = {
+        channels: { fetch: vi.fn(async () => mockChannel) },
+      } as any;
+
+      const session = new GameSession(game, db, dmManager, mockClient);
+      handler.registerSession(session);
+
+      let updatedPayload: any = null;
+      const mockIncButton = {
+        customId: buildCustomId(game.id, 'CONFIG', 'role_inc', 'host-1', 'SEER:0'),
+        user: { id: 'host-1', username: 'Host User' },
+        member: { displayName: 'Host User' },
+        isButton: () => true,
+        isStringSelectMenu: () => false,
+        isChatInputCommand: () => false,
+        isModalSubmit: () => false,
+        isRepliable: () => true,
+        deferred: false,
+        replied: false,
+        deferReply: vi.fn(),
+        update: vi.fn(async (opts: any) => {
+          updatedPayload = opts;
+        }),
+        reply: vi.fn(),
+      } as any;
+
+      await handler.handleInteraction(mockIncButton);
+
+      expect(mockIncButton.deferReply).not.toHaveBeenCalled();
+      expect(mockIncButton.update).toHaveBeenCalled();
+      expect(game.config.roles.SEER).toBeGreaterThanOrEqual(1);
 
       session.stopWatchdog();
       db.close();
