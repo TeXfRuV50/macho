@@ -11,6 +11,7 @@ export declare class InteractionHandler {
     registerSession(session: GameSession): void;
     getSession(channelId: string): GameSession | undefined;
     removeSession(channelId: string): void;
+    getActiveSessionsCount(): number;
     /**
      * Trả lời tương tác an toàn, tránh lỗi 10062 (Unknown interaction) và không làm sập bot
      */

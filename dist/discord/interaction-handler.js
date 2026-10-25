@@ -11,6 +11,7 @@ const config_ui_1 = require("./config-ui");
 const presets_1 = require("../engine/presets");
 const custom_roles_1 = require("../engine/custom-roles");
 const roles_1 = require("../engine/roles");
+const cli_ui_1 = require("./cli-ui");
 class InteractionHandler {
     activeSessions = new Map(); // channelId -> GameSession
     db;
@@ -29,6 +30,9 @@ class InteractionHandler {
     }
     removeSession(channelId) {
         this.activeSessions.delete(channelId);
+    }
+    getActiveSessionsCount() {
+        return this.activeSessions.size;
     }
     /**
      * Trả lời tương tác an toàn, tránh lỗi 10062 (Unknown interaction) và không làm sập bot
@@ -62,20 +66,26 @@ class InteractionHandler {
     async handleInteraction(interaction) {
         try {
             if (interaction.isChatInputCommand()) {
+                cli_ui_1.CliUi.log('ACTION', `Lệnh /${interaction.commandName}`, `User: @${interaction.user.username}`);
                 await this.handleChatInput(interaction);
             }
             else if (interaction.isButton()) {
+                const parsed = (0, types_1.parseCustomId)(interaction.customId);
+                cli_ui_1.CliUi.log('ACTION', `Nút [${parsed?.action || interaction.customId}]`, `User: @${interaction.user.username}`);
                 await this.handleButton(interaction);
             }
             else if (interaction.isStringSelectMenu()) {
+                const parsed = (0, types_1.parseCustomId)(interaction.customId);
+                cli_ui_1.CliUi.log('ACTION', `Menu [${parsed?.action || interaction.customId}]`, `User: @${interaction.user.username}`);
                 await this.handleStringSelect(interaction);
             }
             else if (interaction.isModalSubmit()) {
+                cli_ui_1.CliUi.log('ACTION', `Modal Submit: ${interaction.customId}`, `User: @${interaction.user.username}`);
                 await this.handleModal(interaction);
             }
         }
         catch (err) {
-            console.error('[InteractionHandler] Lỗi xử lý:', err);
+            cli_ui_1.CliUi.logError('Lỗi khi xử lý tương tác Discord', err);
             if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
                 try {
                     await interaction.reply({

@@ -9,21 +9,21 @@ import { DatabaseManager } from './database/database';
 import { DmManager } from './discord/dm-manager';
 import { InteractionHandler } from './discord/interaction-handler';
 import { GameSession } from './discord/game-session';
+import { CliUi } from './discord/cli-ui';
 
 dotenv.config();
 
 const token = process.env.DISCORD_TOKEN;
 const dbPath = process.env.DATABASE_PATH || './werewolf.db';
 
-console.log('🐺 ===============================================');
-console.log('🐺  DISCORD WEREWOLF BOT (QUẢN TRÒ TIẾNG VIỆT)   ');
-console.log('🐺 ===============================================');
+// In Banner phong cách hiện đại cho Termux và CMD
+CliUi.printBanner();
 
 if (!token || token === 'your_discord_bot_token_here') {
-  console.warn(
-    '⚠️ Chưa thiết lập DISCORD_TOKEN trong file .env!\n' +
-    '👉 Hãy copy .env.example sang .env và điền Token bot của bạn để kết nối với Discord.\n' +
-    '💡 Để chạy kiểm thử nội bộ không cần token, hãy chạy lệnh: npm test'
+  CliUi.log('WARN', 'Chưa thiết lập DISCORD_TOKEN trong file .env!');
+  console.log(
+    '  👉 Hãy copy .env.example sang .env và điền Token bot của bạn để kết nối với Discord.\n' +
+    '  💡 Để chạy kiểm thử nội bộ không cần token, hãy chạy lệnh: npm test\n'
   );
   process.exit(0);
 }
@@ -46,28 +46,45 @@ const client = new Client({
 });
 
 client.once(Events.ClientReady, async () => {
-  console.log(`✅ Bot đã đăng nhập thành công với tài khoản: ${client.user?.tag}`);
+  let activeGamesCount = 0;
 
   // Phục hồi toàn bộ ván đấu đang chạy dở từ SQLite (Reboot Recovery)
   try {
     const activeGames = db.getAllActiveGames();
-    console.log(`📦 Tìm thấy ${activeGames.length} ván đấu đang hoạt động trong database.`);
+    activeGamesCount = activeGames.length;
 
     for (const game of activeGames) {
       const session = new GameSession(game, db, dmManager, client);
       interactionHandler.registerSession(session);
       await session.checkExpiredDeadline();
-      console.log(`🔄 Đã phục hồi ván đấu ID: ${game.id} tại kênh: ${game.channelId} (Pha: ${game.phase})`);
+      CliUi.log('GAME', `Đã phục hồi ván đấu ID: ${game.id}`, `Kênh: ${game.channelId} | Pha: ${game.phase}`);
     }
   } catch (err: any) {
-    console.error('❌ Lỗi khi phục hồi ván đấu cũ từ database:', err);
+    CliUi.logError('Lỗi khi phục hồi ván đấu cũ từ database', err);
   }
 
-  console.log('🐺 Bot Quản Trò Ma Sói đã sẵn sàng nhận lệnh!');
+  // In Bảng điều khiển hệ thống đẹp mắt
+  CliUi.printDashboard({
+    botTag: client.user?.tag || 'Werewolf Bot',
+    botId: client.user?.id,
+    serverCount: client.guilds.cache.size,
+    activeGames: activeGamesCount,
+    dbPath,
+  });
+
+  CliUi.log('SUCCESS', `Bot đã kết nối thành công với tài khoản: ${client.user?.tag}`);
+  CliUi.log('INFO', 'Hệ thống Quản Trò Ma Sói đã sẵn sàng phục vụ!');
+
+  // Heartbeat định kỳ mỗi 60 giây để theo dõi RAM / Ping trên Termux / VPS
+  setInterval(() => {
+    const ping = client.ws.ping >= 0 ? client.ws.ping : 0;
+    const currentActiveGames = interactionHandler.getActiveSessionsCount();
+    CliUi.printHeartbeat(ping, currentActiveGames);
+  }, 60000);
 });
 
-client.on('error', (err) => {
-  console.error('❌ [Discord Client Error]:', err?.message || err);
+client.on('error', (err: any) => {
+  CliUi.log('ERROR', `Discord Client Error: ${err?.message || err}`);
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -80,28 +97,28 @@ client.on('messageCreate', async (message) => {
 
 // Bắt lỗi toàn cục để không bao giờ crash tiến trình bot
 process.on('unhandledRejection', (reason: any) => {
-  console.error('❌ [Unhandled Rejection]:', reason?.message || reason);
+  CliUi.log('ERROR', `Unhandled Rejection: ${reason?.message || reason}`);
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('❌ [Uncaught Exception]:', err?.message || err);
+process.on('uncaughtException', (err: any) => {
+  CliUi.logError('Uncaught Exception', err);
 });
 
 // Xử lý đóng ứng dụng an toàn (Graceful Shutdown)
 process.on('SIGINT', () => {
-  console.log('\n🛑 Đang dừng Bot an toàn...');
+  CliUi.log('WARN', 'Đang dừng Bot an toàn và lưu cơ sở dữ liệu...');
   db.close();
   client.destroy();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('\n🛑 Đang dừng Bot an toàn...');
+  CliUi.log('WARN', 'Đang dừng Bot an toàn và lưu cơ sở dữ liệu...');
   db.close();
   client.destroy();
   process.exit(0);
 });
 
 client.login(token).catch((err) => {
-  console.error('❌ Đăng nhập Discord thất bại. Kiểm tra lại DISCORD_TOKEN trong file .env:', err?.message);
+  CliUi.logError('Đăng nhập Discord thất bại! Vui lòng kiểm tra lại DISCORD_TOKEN trong file .env', err);
 });

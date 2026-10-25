@@ -19,6 +19,7 @@ import { ConfigUi, ORDERED_CONFIG_ROLES } from './config-ui';
 import { balancePresetForPlayerCount, BUILTIN_PRESETS } from '../engine/presets';
 import { CustomRoleRegistry } from '../engine/custom-roles';
 import { getRoleInfo } from '../engine/roles';
+import { CliUi } from './cli-ui';
 
 export class InteractionHandler {
   private activeSessions: Map<string, GameSession> = new Map(); // channelId -> GameSession
@@ -42,6 +43,10 @@ export class InteractionHandler {
 
   public removeSession(channelId: string): void {
     this.activeSessions.delete(channelId);
+  }
+
+  public getActiveSessionsCount(): number {
+    return this.activeSessions.size;
   }
 
   /**
@@ -73,16 +78,22 @@ export class InteractionHandler {
   public async handleInteraction(interaction: Interaction): Promise<void> {
     try {
       if (interaction.isChatInputCommand()) {
+        CliUi.log('ACTION', `Lệnh /${interaction.commandName}`, `User: @${interaction.user.username}`);
         await this.handleChatInput(interaction);
       } else if (interaction.isButton()) {
+        const parsed = parseCustomId(interaction.customId);
+        CliUi.log('ACTION', `Nút [${parsed?.action || interaction.customId}]`, `User: @${interaction.user.username}`);
         await this.handleButton(interaction);
       } else if (interaction.isStringSelectMenu()) {
+        const parsed = parseCustomId(interaction.customId);
+        CliUi.log('ACTION', `Menu [${parsed?.action || interaction.customId}]`, `User: @${interaction.user.username}`);
         await this.handleStringSelect(interaction);
       } else if (interaction.isModalSubmit()) {
+        CliUi.log('ACTION', `Modal Submit: ${interaction.customId}`, `User: @${interaction.user.username}`);
         await this.handleModal(interaction);
       }
     } catch (err: any) {
-      console.error('[InteractionHandler] Lỗi xử lý:', err);
+      CliUi.logError('Lỗi khi xử lý tương tác Discord', err);
       if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
         try {
           await interaction.reply({
